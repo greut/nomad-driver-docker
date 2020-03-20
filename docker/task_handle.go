@@ -36,6 +36,12 @@ type taskHandleState struct {
 	DriverNetwork *drivers.DriverNetwork
 }
 
+func (h *taskHandle) ExitResult() *drivers.ExitResult {
+	h.exitResultLock.Lock()
+	defer h.exitResultLock.Unlock()
+	return h.exitResult.Copy()
+}
+
 func (h *taskHandle) buildState() *taskHandleState {
 	s := &taskHandleState{
 		ContainerID:   h.containerID,

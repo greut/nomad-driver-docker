@@ -355,7 +355,15 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 }
 
 func (d *Driver) WaitTask(ctx context.Context, taskID string) (<-chan *drivers.ExitResult, error) {
-	return nil, fmt.Errorf("6 not implemented error")
+	h, ok := d.tasks.Get(taskID)
+	if !ok {
+		return nil, drivers.ErrTaskNotFound
+	}
+
+	ch := make(chan *drivers.ExitResult)
+	go d.handleWait(ctx, ch, h)
+
+	return ch, nil
 }
 
 func (d *Driver) StopTask(taskID string, timeout time.Duration, signal string) error {
@@ -477,4 +485,16 @@ func (d *Driver) trackedContainers() map[string]bool {
 	}
 
 	return r
+}
+
+func (d *Driver) handleWait(ctx context.Context, ch chan *drivers.ExitResult, h *taskHandle) {
+	defer close(ch)
+	select {
+	case <-h.waitChan:
+		ch <- h.ExitResult()
+	case <-ctx.Done():
+		ch <- &drivers.ExitResult{
+			Err: ctx.Err(),
+		}
+	}
 }
