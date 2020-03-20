@@ -3,9 +3,15 @@ package docker
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"strings"
 	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types"
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
+	"github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/client"
 	"github.com/hashicorp/go-hclog"
 	cstructs "github.com/hashicorp/nomad/client/structs"
@@ -224,15 +230,128 @@ func (d *Driver) TaskConfigSchema() (*hclspec.Spec, error) {
 }
 
 func (d *Driver) Capabilities() (*drivers.Capabilities, error) {
-	return nil, fmt.Errorf("3 not implemented error")
+	return capabilities, nil
 }
 
 func (d *Driver) RecoverTask(*drivers.TaskHandle) error {
 	return fmt.Errorf("4 not implemented error")
 }
 
-func (d *Driver) StartTask(*drivers.TaskConfig) (*drivers.TaskHandle, *drivers.DriverNetwork, error) {
-	return nil, nil, fmt.Errorf("5 not implemented error")
+func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *drivers.DriverNetwork, error) {
+	if _, ok := d.tasks.Get(task.ID); ok {
+		return nil, nil, fmt.Errorf("task with ID %q already started", task.ID)
+	}
+
+	driverConfig := new(TaskConfig)
+	if err := task.DecodeDriverConfig(&driverConfig); err != nil {
+		return nil, nil, fmt.Errorf("failed to decode driver config. %w", err)
+	}
+
+	if driverConfig.Image == "" {
+		return nil, nil, fmt.Errorf("image name required for docker driver")
+	}
+
+	client, waitClient, err := d.clients()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to obtain a docker client. %w", err)
+	}
+
+	d.logger.Debug("pulling docker image", "image", driverConfig.Image)
+
+	closer, err := client.ImagePull(d.ctx, driverConfig.Image, types.ImagePullOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to pull the image %q. %w", driverConfig.Image, err)
+	}
+
+	defer closer.Close()
+
+	b, err := ioutil.ReadAll(closer)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to read image pull operation. %w", err)
+	}
+
+	d.logger.Debug("image pulled", "output", b)
+
+	containerName := fmt.Sprintf(
+		"%s-%s", strings.Replace(task.Name, "/", "_", -1),
+		task.AllocID,
+	)
+
+	containers, err := client.ContainerList(d.ctx, types.ContainerListOptions{
+		Limit:   1,
+		Filters: filters.NewArgs(filters.Arg("name", containerName)),
+	})
+
+	// Create a new container
+	_, err = client.ContainerCreate(
+		d.ctx,
+		&container.Config{
+			Image:  driverConfig.Image,
+			Labels: driverConfig.Labels,
+		},
+		&container.HostConfig{},
+		&network.NetworkingConfig{},
+		containerName,
+	)
+
+	if err != nil {
+		d.logger.Error("container creation failure", "error", err)
+	}
+
+	// Search for the created container
+	// XXX does it need a mutex?
+	containers, err = client.ContainerList(d.ctx, types.ContainerListOptions{
+		Limit:   1,
+		Filters: filters.NewArgs(filters.Arg("name", containerName)),
+	})
+
+	if len(containers) == 0 {
+		return nil, nil, fmt.Errorf("could not find the created container")
+	}
+
+	container := &containers[0]
+
+	d.logger.Info("created container", "container_id", container.ID)
+
+	handle := drivers.NewTaskHandle(taskHandleVersion)
+	handle.Config = task
+
+	containerJSON, err := client.ContainerInspect(d.ctx, container.ID)
+	if err != nil {
+		return nil, nil, fmt.Errorf("container inspection failure. %w", err)
+	}
+
+	ip, autoUse := d.detectIP(&containerJSON, driverConfig)
+
+	net := &drivers.DriverNetwork{
+		PortMap:       driverConfig.PortMap,
+		IP:            ip,
+		AutoAdvertise: autoUse,
+	}
+
+	h := &taskHandle{
+		ctx:         d.ctx,
+		client:      client,
+		waitClient:  waitClient,
+		logger:      d.logger.With("container_id", container.ID),
+		task:        task,
+		containerID: container.ID,
+		doneChan:    make(chan bool),
+		waitChan:    make(chan struct{}),
+	}
+
+	if err := handle.SetDriverState(h.buildState()); err != nil {
+		d.logger.Error("error occured after startup, terminating container", "container_id", container.ID, "error", err)
+		client.ContainerRemove(d.ctx, container.ID, types.ContainerRemoveOptions{
+			Force: true,
+		})
+		return nil, nil, fmt.Errorf("set driver state failure. %w", err)
+	}
+
+	d.tasks.Set(task.ID, h)
+	go h.run()
+
+	return handle, net, nil
 }
 
 func (d *Driver) WaitTask(ctx context.Context, taskID string) (<-chan *drivers.ExitResult, error) {
@@ -295,6 +414,21 @@ func (d *Driver) clients() (*docker.Client, *docker.Client, error) {
 	}
 
 	return d.client, d.waitClient, nil
+}
+
+func (d *Driver) detectIP(c *types.ContainerJSON, driverConfig *TaskConfig) (string, bool) {
+	ip := ""
+
+	for _, net := range c.NetworkSettings.Networks {
+		if net.IPAddress == "" {
+			continue
+		}
+
+		ip = net.IPAddress
+		break
+	}
+
+	return ip, false
 }
 
 func (d *Driver) setDetected(detected bool) {

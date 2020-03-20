@@ -32,10 +32,10 @@ require (
 	github.com/hashicorp/go-plugin v1.1.0 // indirect
 	github.com/hashicorp/go-version v1.2.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
+	github.com/hashicorp/hcl2 v0.0.0-20191002203319-fb75b3253c80 // indirect
 	github.com/hashicorp/nomad v0.10.4
 	github.com/hashicorp/raft v1.1.2 // indirect
 	github.com/hashicorp/vault/api v1.0.4 // indirect
-	github.com/hpcloud/tail v1.0.0 // indirect
 	github.com/mitchellh/hashstructure v1.0.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
@@ -47,7 +47,5 @@ require (
 	golang.org/x/crypto v0.0.0-20200317142112-1b76d66859c6 // indirect
 	golang.org/x/net v0.0.0-20200301022130-244492dfa37a // indirect
 	google.golang.org/grpc v1.28.0 // indirect
-	gopkg.in/fsnotify.v1 v1.4.7 // indirect
-	gopkg.in/tomb.v1 v1.0.0-20141024135613-dd632973f1e7 // indirect
 	gotest.tools v2.2.0+incompatible // indirect
 )
