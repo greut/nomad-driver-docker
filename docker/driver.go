@@ -198,7 +198,7 @@ func (d *Driver) SetConfig(c *base.Config) error {
 		d.clientConfig = c.AgentConfig.Driver
 	}
 
-	dockerClient, _, err := d.dockerClients()
+	dockerClient, _, err := d.clients()
 	if err != nil {
 		return fmt.Errorf("failed to get docker client. %w", err)
 	}
@@ -262,15 +262,15 @@ func (d *Driver) ExecTask(taskID string, cmd []string, timeout time.Duration) (*
 	return nil, fmt.Errorf("d not implemented error")
 }
 
-// dockerClients creates two *docker.Client, one for long running operations and
+// clients creates two *docker.Client, one for long running operations and
 // the other for shorter operations. In test / dev mode we can use ENV vars to
 // connect to the docker daemon. In production mode we will read docker.endpoint
 // from the config file.
-func (d *Driver) dockerClients() (*docker.Client, *docker.Client, error) {
+func (d *Driver) clients() (*docker.Client, *docker.Client, error) {
 	d.createClientsLock.Lock()
 	defer d.createClientsLock.Unlock()
 
-	if d.client != nil {
+	if d.client == nil {
 		client, err := docker.NewClientWithOpts(docker.FromEnv)
 		if err != nil {
 			return nil, nil, fmt.Errorf("error creating client from env. %w", err)
@@ -279,7 +279,7 @@ func (d *Driver) dockerClients() (*docker.Client, *docker.Client, error) {
 		d.client = client
 	}
 
-	if d.waitClient != nil {
+	if d.waitClient == nil {
 		// XXX no timeouts
 		client, err := docker.NewClientWithOpts(docker.FromEnv)
 		if err != nil {

@@ -42,7 +42,7 @@ func (d *Driver) buildFingerprint() *drivers.Fingerprint {
 		HealthDescription: drivers.DriverHealthy,
 	}
 
-	client, _, err := d.dockerClients()
+	client, _, err := d.clients()
 	if err != nil {
 		if d.fingerprintSuccessful() {
 			d.logger.Info("failed to initialize client", "error", err)
