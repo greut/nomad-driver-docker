@@ -91,6 +91,11 @@ var (
 		),
 	})
 
+	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
+		"image":  hclspec.NewAttr("image", "string", true),
+		"labels": hclspec.NewAttr("labels", "list(map(string))", false),
+	})
+
 	capabilities = &drivers.Capabilities{
 		SendSignals: true,
 	}
@@ -215,7 +220,7 @@ func (d *Driver) SetConfig(c *base.Config) error {
 }
 
 func (d *Driver) TaskConfigSchema() (*hclspec.Spec, error) {
-	return nil, fmt.Errorf("2 not implemented error")
+	return taskConfigSpec, nil
 }
 
 func (d *Driver) Capabilities() (*drivers.Capabilities, error) {
