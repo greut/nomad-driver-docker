@@ -18,6 +18,7 @@ import (
 	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/drivers/shared/eventer"
 	"github.com/hashicorp/nomad/helper"
+	nstructs "github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/base"
 	"github.com/hashicorp/nomad/plugins/drivers"
 	"github.com/hashicorp/nomad/plugins/shared/hclspec"
@@ -271,7 +272,8 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 		return nil, nil, fmt.Errorf("failed to read image pull operation. %w", err)
 	}
 
-	d.logger.Debug("image pulled", "output", b)
+	// XXX b is a stream of JSON documents
+	d.logger.Debug("image pulled", "output", string(b))
 
 	containerName := fmt.Sprintf(
 		"%s-%s", strings.Replace(task.Name, "/", "_", -1),
@@ -313,6 +315,21 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	container := &containers[0]
 
 	d.logger.Info("created container", "container_id", container.ID)
+
+	if container.State != "running" {
+		if err := client.ContainerStart(d.ctx, container.ID, types.ContainerStartOptions{}); err != nil {
+			d.logger.Error("failed to start container", "container_id", container.ID)
+
+			return nil, nil, nstructs.WrapRecoverable(fmt.Sprintf("Failed to start container %s: %s", container.ID, err), err)
+		}
+
+		// XXX update "container" using list
+
+		d.logger.Info("started container", "container_id", container.ID)
+	} else {
+		d.logger.Debug("re-attaching to container", "container_id",
+			container.ID, "container_state", container.State)
+	}
 
 	handle := drivers.NewTaskHandle(taskHandleVersion)
 	handle.Config = task
@@ -407,7 +424,17 @@ func (d *Driver) TaskEvents(ctx context.Context) (<-chan *drivers.TaskEvent, err
 }
 
 func (d *Driver) SignalTask(taskID string, signal string) error {
-	return fmt.Errorf("c not implemented error")
+	h, ok := d.tasks.Get(taskID)
+	if !ok {
+		return drivers.ErrTaskNotFound
+	}
+
+	sig, err := signals.Parse(signal)
+	if err != nil {
+		return fmt.Errorf("failed to parse signal: %v", err)
+	}
+
+	return h.Signal(sig)
 }
 
 func (d *Driver) ExecTask(taskID string, cmd []string, timeout time.Duration) (*drivers.ExecTaskResult, error) {

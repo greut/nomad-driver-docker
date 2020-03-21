@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"strconv"
 	"sync"
 	"syscall"
 	"time"
@@ -68,7 +69,7 @@ func (h *taskHandle) Signal(s os.Signal) error {
 		return fmt.Errorf("Failed to determine signal number")
 	}
 
-	return h.client.ContainerKill(h.ctx, h.containerID, sysSig.String())
+	return h.client.ContainerKill(h.ctx, h.containerID, strconv.Itoa(int(sysSig)))
 }
 
 // Kill is used to terminate the task.
@@ -77,15 +78,16 @@ func (h *taskHandle) Kill(killTimeout time.Duration, signal os.Signal) error {
 	if killTimeout > 0 {
 		if err := h.Signal(signal); err != nil {
 			// Container has already been removed.
-			//if strings.Contains(err.Error(), NoSuchContainerError) {
-			//	h.logger.Debug("attempted to signal nonexistent container")
-			//	return nil
-			//}
+			if docker.IsErrNotFound(err) {
+				h.logger.Debug("attempted to signal nonexistent container")
+				return nil
+			}
+
 			// Container has already been stopped.
-			//if strings.Contains(err.Error(), ContainerNotRunningError) {
-			//	h.logger.Debug("attempted to signal a not-running container")
-			//	return nil
-			//}
+			if IsErrNotRunning(err) {
+				h.logger.Debug("attempted to signal a not-running container")
+				return nil
+			}
 
 			h.logger.Error("failed to signal container while killing", "error", err)
 			return fmt.Errorf("Failed to signal container %q while killing: %v", h.containerID, err)
@@ -104,15 +106,16 @@ func (h *taskHandle) Kill(killTimeout time.Duration, signal os.Signal) error {
 	if err != nil {
 
 		// Container has already been removed.
-		//if strings.Contains(err.Error(), NoSuchContainerError) {
-		//	h.logger.Debug("attempted to stop nonexistent container")
-		//	return nil
-		//}
+		if docker.IsErrNotFound(err) {
+			h.logger.Debug("attempted to stop nonexistent container")
+			return nil
+		}
+
 		// Container has already been stopped.
-		//if strings.Contains(err.Error(), ContainerNotRunningError) {
-		//	h.logger.Debug("attempted to stop an not-running container")
-		//	return nil
-		//}
+		if IsErrNotRunning(err) {
+			h.logger.Debug("attempted to stop an not-running container")
+			return nil
+		}
 
 		h.logger.Error("failed to stop container", "error", err)
 		return fmt.Errorf("Failed to stop container %s: %s", h.containerID, err)
