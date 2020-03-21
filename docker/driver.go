@@ -348,14 +348,15 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	}
 
 	h := &taskHandle{
-		ctx:         d.ctx,
-		client:      client,
-		waitClient:  waitClient,
-		logger:      d.logger.With("container_id", container.ID),
-		task:        task,
-		containerID: container.ID,
-		doneChan:    make(chan bool),
-		waitChan:    make(chan struct{}),
+		ctx:                   d.ctx,
+		client:                client,
+		waitClient:            waitClient,
+		logger:                d.logger.With("container_id", container.ID),
+		task:                  task,
+		containerID:           container.ID,
+		doneChan:              make(chan bool),
+		waitChan:              make(chan struct{}),
+		removeContainerOnExit: d.config.GC.Container,
 	}
 
 	if err := handle.SetDriverState(h.buildState()); err != nil {
@@ -403,7 +404,47 @@ func (d *Driver) StopTask(taskID string, timeout time.Duration, signal string) e
 }
 
 func (d *Driver) DestroyTask(taskID string, force bool) error {
-	return fmt.Errorf("8 not implemented error")
+	h, ok := d.tasks.Get(taskID)
+	if !ok {
+		return drivers.ErrTaskNotFound
+	}
+
+	c, err := h.client.ContainerInspect(h.ctx, h.containerID)
+	if err != nil {
+		if docker.IsErrNotFound(err) {
+			h.logger.Info("container was removed out of band, will proceed with DestroyTask",
+				"error", err)
+		} else {
+			return fmt.Errorf("failed to inspect container state: %s. %w", h.containerID, err)
+		}
+	} else {
+		if c.State.Running {
+			if !force {
+				return fmt.Errorf("must call StopTask for the given task before Destroy or set force to true")
+			}
+			if err := h.client.ContainerStop(h.ctx, h.containerID, nil); err != nil {
+				h.logger.Warn("failed to stop container during destroy", "error", err)
+			}
+		}
+
+		if h.removeContainerOnExit {
+			if err := h.client.ContainerRemove(h.ctx, h.containerID, types.ContainerRemoveOptions{RemoveVolumes: true, Force: true}); err != nil {
+				h.logger.Error("error removing container", "error", err)
+			}
+		} else {
+			h.logger.Debug("not removing container due to config")
+		}
+	}
+
+	/* XXX TODO
+	if err := d.cleanupImage(h); err != nil {
+		h.logger.Error("failed to cleanup image after destroying container",
+			"error", err)
+	}
+	*/
+
+	d.tasks.Delete(taskID)
+	return nil
 }
 
 func (d *Driver) InspectTask(taskID string) (*drivers.TaskStatus, error) {

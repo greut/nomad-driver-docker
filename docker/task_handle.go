@@ -19,15 +19,16 @@ import (
 )
 
 type taskHandle struct {
-	ctx         context.Context
-	containerID string
-	client      *docker.Client
-	waitClient  *docker.Client
-	logger      hclog.Logger
-	task        *drivers.TaskConfig
-	doneChan    chan bool
-	waitChan    chan struct{}
-	net         *drivers.DriverNetwork
+	ctx                   context.Context
+	containerID           string
+	client                *docker.Client
+	waitClient            *docker.Client
+	logger                hclog.Logger
+	task                  *drivers.TaskConfig
+	doneChan              chan bool
+	waitChan              chan struct{}
+	net                   *drivers.DriverNetwork
+	removeContainerOnExit bool
 
 	exitResult     *drivers.ExitResult
 	exitResultLock sync.Mutex
