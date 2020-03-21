@@ -3,7 +3,9 @@ package docker
 import (
 	"context"
 	"fmt"
+	"os"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/docker/docker/api/types/container"
@@ -57,6 +59,67 @@ func (h *taskHandle) Stats(ctx context.Context, interval time.Duration) (<-chan 
 	go h.collectStats(ctx, destChan, interval)
 
 	return recvChan, nil
+}
+
+func (h *taskHandle) Signal(s os.Signal) error {
+	// Convert types
+	sysSig, ok := s.(syscall.Signal)
+	if !ok {
+		return fmt.Errorf("Failed to determine signal number")
+	}
+
+	return h.client.ContainerKill(h.ctx, h.containerID, sysSig.String())
+}
+
+// Kill is used to terminate the task.
+func (h *taskHandle) Kill(killTimeout time.Duration, signal os.Signal) error {
+	// Only send signal if killTimeout is set, otherwise stop container
+	if killTimeout > 0 {
+		if err := h.Signal(signal); err != nil {
+			// Container has already been removed.
+			//if strings.Contains(err.Error(), NoSuchContainerError) {
+			//	h.logger.Debug("attempted to signal nonexistent container")
+			//	return nil
+			//}
+			// Container has already been stopped.
+			//if strings.Contains(err.Error(), ContainerNotRunningError) {
+			//	h.logger.Debug("attempted to signal a not-running container")
+			//	return nil
+			//}
+
+			h.logger.Error("failed to signal container while killing", "error", err)
+			return fmt.Errorf("Failed to signal container %q while killing: %v", h.containerID, err)
+		}
+
+		select {
+		case <-h.waitChan:
+			return nil
+		case <-time.After(killTimeout):
+		}
+	}
+
+	// Stop the container
+	notimeout := 0 * time.Second
+	err := h.client.ContainerStop(h.ctx, h.containerID, &notimeout)
+	if err != nil {
+
+		// Container has already been removed.
+		//if strings.Contains(err.Error(), NoSuchContainerError) {
+		//	h.logger.Debug("attempted to stop nonexistent container")
+		//	return nil
+		//}
+		// Container has already been stopped.
+		//if strings.Contains(err.Error(), ContainerNotRunningError) {
+		//	h.logger.Debug("attempted to stop an not-running container")
+		//	return nil
+		//}
+
+		h.logger.Error("failed to stop container", "error", err)
+		return fmt.Errorf("Failed to stop container %s: %s", h.containerID, err)
+	}
+
+	h.logger.Info("stopped container")
+	return nil
 }
 
 // collectStats starts collecting resource usage stats of a docker container

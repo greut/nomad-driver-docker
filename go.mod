@@ -26,17 +26,15 @@ require (
 	github.com/golang/protobuf v1.3.5 // indirect
 	github.com/gorhill/cronexpr v0.0.0-20180427100037-88b0669f7d75 // indirect
 	github.com/gorilla/mux v1.7.4 // indirect
+	github.com/hashicorp/consul-template v0.24.1
 	github.com/hashicorp/consul/api v1.4.0 // indirect
 	github.com/hashicorp/go-hclog v0.12.1
-	github.com/hashicorp/go-immutable-radix v1.1.0 // indirect
 	github.com/hashicorp/go-plugin v1.1.0 // indirect
 	github.com/hashicorp/go-version v1.2.0 // indirect
 	github.com/hashicorp/golang-lru v0.5.4 // indirect
 	github.com/hashicorp/hcl2 v0.0.0-20191002203319-fb75b3253c80 // indirect
 	github.com/hashicorp/nomad v0.10.4
 	github.com/hashicorp/raft v1.1.2 // indirect
-	github.com/hashicorp/vault/api v1.0.4 // indirect
-	github.com/mitchellh/hashstructure v1.0.0 // indirect
 	github.com/morikuni/aec v1.0.0 // indirect
 	github.com/opencontainers/go-digest v1.0.0-rc1 // indirect
 	github.com/opencontainers/image-spec v1.0.1 // indirect

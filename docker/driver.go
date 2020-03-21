@@ -13,6 +13,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/client"
+	"github.com/hashicorp/consul-template/signals"
 	"github.com/hashicorp/go-hclog"
 	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/drivers/shared/eventer"
@@ -367,7 +368,21 @@ func (d *Driver) WaitTask(ctx context.Context, taskID string) (<-chan *drivers.E
 }
 
 func (d *Driver) StopTask(taskID string, timeout time.Duration, signal string) error {
-	return fmt.Errorf("7 not implemented error")
+	h, ok := d.tasks.Get(taskID)
+	if !ok {
+		return drivers.ErrTaskNotFound
+	}
+
+	if signal == "" {
+		signal = "SIGINT"
+	}
+
+	sig, err := signals.Parse(signal)
+	if err != nil {
+		return fmt.Errorf("failed to parse signal: %v", err)
+	}
+
+	return h.Kill(timeout, sig)
 }
 
 func (d *Driver) DestroyTask(taskID string, force bool) error {
