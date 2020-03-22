@@ -33,5 +33,4 @@ jobs:
             sudo tar -C /usr/local -xzf /tmp/golang.tar.gz
             rm -rf /tmp/golang.tar.gz
       - run: |
-          sudo -E PATH="/usr/local/go/bin:$PATH"
           make test
