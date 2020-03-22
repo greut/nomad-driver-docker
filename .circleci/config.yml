@@ -1,4 +1,9 @@
 version: 2
+workflows:
+  main:
+    jobs:
+      - test-simple
+      - test-docker
 jobs:
   test-simple:
     docker:
