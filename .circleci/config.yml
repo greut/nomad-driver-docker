@@ -1,11 +1,37 @@
-version: 2
+version: 2.1
+
+workflows:
+  main:
+    jobs:
+      - test-simple
+      - test-docker
+
 jobs:
-  build:
+  test-simple:
     docker:
       - image: circleci/golang:1.14
 
     working_directory: /go/src/github.com/{{ORG_NAME}}/{{REPO_NAME}}
     steps:
       - checkout
-
       - run: go test -v ./...
+
+  test-docker:
+    machine:
+      image: ubuntu-1604:201903-01
+    environment:
+      - GOLANG_VERSION: 1.14
+      - DOCKER_API_VERSION: 1.39
+    steps:
+      - checkout
+      - run:
+          name: install Go
+          command: |
+            set -x
+            echo installing golang ${GOLANG_VERSION}
+            sudo rm -rf /usr/local/go
+            wget -O /tmp/golang.tar.gz https://dl.google.com/go/go${GOLANG_VERSION}.linux-amd64.tar.gz
+            sudo tar -C /usr/local -xzf /tmp/golang.tar.gz
+            rm -rf /tmp/golang.tar.gz
+      - run: |
+          make test
