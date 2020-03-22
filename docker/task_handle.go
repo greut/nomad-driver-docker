@@ -195,14 +195,15 @@ func (h *taskHandle) run() {
 	var exitCode int
 	var err error
 
-	exitChan, errChan := h.waitClient.ContainerWait(h.ctx, h.containerID, container.WaitConditionNextExit)
+	exitChan, errChan := h.waitClient.ContainerWait(h.ctx, h.containerID, container.WaitConditionNotRunning)
 
+outer:
 	for {
 		select {
 		case <-h.ctx.Done():
 			err = h.ctx.Err()
 
-			break
+			break outer
 
 		case body, ok := <-exitChan:
 			if !ok {
@@ -216,7 +217,7 @@ func (h *taskHandle) run() {
 				err = fmt.Errorf("docker container exited with non-zero exit code: %d", body.StatusCode)
 			}
 
-			break
+			break outer
 
 		case e, ok := <-errChan:
 			if !ok {
@@ -227,7 +228,7 @@ func (h *taskHandle) run() {
 
 			err = e
 
-			break
+			break outer
 		}
 	}
 

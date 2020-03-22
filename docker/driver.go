@@ -99,11 +99,6 @@ var (
 		),
 	})
 
-	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"image":  hclspec.NewAttr("image", "string", true),
-		"labels": hclspec.NewAttr("labels", "list(map(string))", false),
-	})
-
 	capabilities = &drivers.Capabilities{
 		SendSignals: true,
 	}
@@ -244,12 +239,12 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 		return nil, nil, fmt.Errorf("task with ID %q already started", task.ID)
 	}
 
-	driverConfig := new(TaskConfig)
-	if err := task.DecodeDriverConfig(&driverConfig); err != nil {
+	config := new(TaskConfig)
+	if err := task.DecodeDriverConfig(&config); err != nil {
 		return nil, nil, fmt.Errorf("failed to decode driver config. %w", err)
 	}
 
-	if driverConfig.Image == "" {
+	if config.Image == "" {
 		return nil, nil, fmt.Errorf("image name required for docker driver")
 	}
 
@@ -258,11 +253,11 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 		return nil, nil, fmt.Errorf("failed to obtain a docker client. %w", err)
 	}
 
-	d.logger.Debug("pulling docker image", "image", driverConfig.Image)
+	d.logger.Debug("pulling docker image", "image", config.Image)
 
-	closer, err := client.ImagePull(d.ctx, driverConfig.Image, types.ImagePullOptions{})
+	closer, err := client.ImagePull(d.ctx, config.Image, types.ImagePullOptions{})
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to pull the image %q. %w", driverConfig.Image, err)
+		return nil, nil, fmt.Errorf("failed to pull the image %q. %w", config.Image, err)
 	}
 
 	defer closer.Close()
@@ -286,11 +281,22 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	})
 
 	// Create a new container
+	// XXX command + args is a legacy from the Docker plugin (shrugs)
+	cmd := make([]string, 0, len(config.Args)+1)
+	if config.Command != "" {
+		cmd = append(cmd, config.Command)
+	}
+	if len(config.Args) != 0 {
+		cmd = append(cmd, config.Args...)
+	}
+	d.logger.Debug("container creation", "image", config.Image, "command", cmd)
+
 	_, err = client.ContainerCreate(
 		d.ctx,
 		&container.Config{
-			Image:  driverConfig.Image,
-			Labels: driverConfig.Labels,
+			Image:  config.Image,
+			Cmd:    cmd,
+			Labels: config.Labels,
 		},
 		&container.HostConfig{},
 		&network.NetworkingConfig{},
@@ -339,10 +345,10 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 		return nil, nil, fmt.Errorf("container inspection failure. %w", err)
 	}
 
-	ip, autoUse := d.detectIP(&containerJSON, driverConfig)
+	ip, autoUse := d.detectIP(&containerJSON, config)
 
 	net := &drivers.DriverNetwork{
-		PortMap:       driverConfig.PortMap,
+		PortMap:       config.PortMap,
 		IP:            ip,
 		AutoAdvertise: autoUse,
 	}
@@ -512,7 +518,7 @@ func (d *Driver) clients() (*docker.Client, *docker.Client, error) {
 	return d.client, d.waitClient, nil
 }
 
-func (d *Driver) detectIP(c *types.ContainerJSON, driverConfig *TaskConfig) (string, bool) {
+func (d *Driver) detectIP(c *types.ContainerJSON, config *TaskConfig) (string, bool) {
 	ip := ""
 
 	for _, net := range c.NetworkSettings.Networks {
@@ -577,6 +583,7 @@ func (d *Driver) trackedContainers() map[string]bool {
 
 func (d *Driver) handleWait(ctx context.Context, ch chan *drivers.ExitResult, h *taskHandle) {
 	defer close(ch)
+
 	select {
 	case <-h.waitChan:
 		ch <- h.ExitResult()

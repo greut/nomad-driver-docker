@@ -2,10 +2,14 @@ package docker
 
 import (
 	"context"
+	"io"
+	"os"
+	"path/filepath"
 	"testing"
 	"time"
 
 	tu "github.com/greut/nomad-driver-docker/testutil"
+	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/helper/freeport"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers"
@@ -102,6 +106,35 @@ func dockerDriverHarness(t *testing.T, cfg map[string]interface{}) *dtestutil.Dr
 	return dtestutil.NewDriverHarness(t, instance.Plugin().(drivers.DriverPlugin))
 }
 
+// copyFile moves an existing file to the destination
+func copyFile(src, dst string, t *testing.T) {
+	in, err := os.Open(src)
+	if err != nil {
+		t.Fatalf("copying %v -> %v failed: %v", src, dst, err)
+	}
+	defer in.Close()
+	out, err := os.Create(dst)
+	if err != nil {
+		t.Fatalf("copying %v -> %v failed: %v", src, dst, err)
+	}
+	defer func() {
+		if err := out.Close(); err != nil {
+			t.Fatalf("copying %v -> %v failed: %v", src, dst, err)
+		}
+	}()
+	if _, err = io.Copy(out, in); err != nil {
+		t.Fatalf("copying %v -> %v failed: %v", src, dst, err)
+	}
+	if err := out.Sync(); err != nil {
+		t.Fatalf("copying %v -> %v failed: %v", src, dst, err)
+	}
+}
+
+func copyImage(t *testing.T, taskDir *allocdir.TaskDir, image string) {
+	dst := filepath.Join(taskDir.LocalDir, image)
+	copyFile(filepath.Join("../test-resources/", image), dst, t)
+}
+
 func TestDockerDriver_Start_Wait(t *testing.T) {
 	if !tu.IsCI() {
 		t.Parallel()
@@ -120,7 +153,7 @@ func TestDockerDriver_Start_Wait(t *testing.T) {
 	d := dockerDriverHarness(t, nil)
 	cleanup := d.MkAllocDir(task, true)
 	defer cleanup()
-	//copyImage(t, task.TaskDir(), "busybox.tar")
+	copyImage(t, task.TaskDir(), "busybox.tar")
 
 	_, _, err := d.StartTask(task)
 	require.NoError(t, err)
@@ -128,11 +161,11 @@ func TestDockerDriver_Start_Wait(t *testing.T) {
 	defer d.DestroyTask(task.ID, true)
 
 	// Attempt to wait
-	waitCh, err := d.WaitTask(context.Background(), task.ID)
+	waitChan, err := d.WaitTask(context.Background(), task.ID)
 	require.NoError(t, err)
 
 	select {
-	case <-waitCh:
+	case <-waitChan:
 		t.Fatalf("wait channel should not have received an exit result")
 	case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
 	}
@@ -156,7 +189,7 @@ func TestDockerDriver_Start_WaitFinish(t *testing.T) {
 	d := dockerDriverHarness(t, nil)
 	cleanup := d.MkAllocDir(task, true)
 	defer cleanup()
-	//copyImage(t, task.TaskDir(), "busybox.tar")
+	copyImage(t, task.TaskDir(), "busybox.tar")
 
 	_, _, err := d.StartTask(task)
 	require.NoError(t, err)
@@ -164,11 +197,11 @@ func TestDockerDriver_Start_WaitFinish(t *testing.T) {
 	defer d.DestroyTask(task.ID, true)
 
 	// Attempt to wait
-	waitCh, err := d.WaitTask(context.Background(), task.ID)
+	waitChan, err := d.WaitTask(context.Background(), task.ID)
 	require.NoError(t, err)
 
 	select {
-	case res := <-waitCh:
+	case res := <-waitChan:
 		if !res.Successful() {
 			require.Fail(t, "ExitResult should be successful: %v", res)
 		}
