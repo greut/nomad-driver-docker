@@ -1,9 +1,11 @@
-version: 2
+version: 2.1
+
 workflows:
   main:
     jobs:
       - test-simple
       - test-docker
+
 jobs:
   test-simple:
     docker:
@@ -14,6 +16,7 @@ jobs:
       - checkout
 
       - run: go test -v ./...
+
   test-docker:
     machine:
       image: ubuntu-1604:201903-01
