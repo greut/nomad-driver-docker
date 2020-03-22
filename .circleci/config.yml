@@ -1,6 +1,6 @@
 version: 2
 jobs:
-  build:
+  test-simple:
     docker:
       - image: circleci/golang:1.14
 
@@ -9,3 +9,10 @@ jobs:
       - checkout
 
       - run: go test -v ./...
+  test-docker:
+    machine:
+      image: ubuntu-1604:201903-01
+    steps:
+      - checkout
+      - run: |
+          make test
