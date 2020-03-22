@@ -20,7 +20,20 @@ jobs:
   test-docker:
     machine:
       image: ubuntu-1604:201903-01
+    environment:
+      - GOLANG_VERSION: 1.14
     steps:
       - checkout
-      - run: |
-          make test
+      - run:
+          name: install Go
+          command: |
+            set -x
+            echo installing golang ${GOLANG_VERSION}
+            sudo rm -rf /usr/local/go
+            wget -O /tmp/golang.tar.gz https://dl.google.com/go/go${GOLANG_VERSION}.linux-amd64.tar.gz
+            sudo tar -C /usr/local -xzf /tmp/golang.tar.gz
+            rm -rf /tmp/golang.tar.gz
+      - run:
+          name: test
+          command: |
+            make test
