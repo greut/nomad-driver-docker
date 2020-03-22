@@ -1,6 +1,6 @@
 # Nomad driver for Docker
 
-[![greut/nomad-driver-docker](https://circleci.com/github/greut/nomad-driver-plugin.svg?style=shield)](https://app.circleci.com/pipelines/github/greut/nomad-driver-docker)
+[![greut/nomad-driver-docker](https://circleci.com/gh/greut/nomad-driver-docker.svg?style=shield)](https://app.circleci.com/pipelines/github/greut/nomad-driver-docker)
 
 Requires Noma(d): [a Nomad without Docker](https://github.com/greut/nomad/tree/no-docker).
 

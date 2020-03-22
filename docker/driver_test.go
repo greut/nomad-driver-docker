@@ -8,6 +8,7 @@ import (
 	"testing"
 	"time"
 
+	docker "github.com/docker/docker/client"
 	tu "github.com/greut/nomad-driver-docker/testutil"
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/helper/freeport"
@@ -104,6 +105,18 @@ func dockerDriverHarness(t *testing.T, cfg map[string]interface{}) *dtestutil.Dr
 	require.NoError(t, err)
 
 	return dtestutil.NewDriverHarness(t, instance.Plugin().(drivers.DriverPlugin))
+}
+
+func newTestDockerClient(t *testing.T) *docker.Client {
+	t.Helper()
+	tu.DockerCompatible(t)
+
+	client, err := docker.NewClientWithOpts(docker.FromEnv)
+	if err != nil {
+		t.Fatalf("failed to initialize client. %s", err)
+	}
+
+	return client
 }
 
 // copyFile moves an existing file to the destination
@@ -208,4 +221,56 @@ func TestDockerDriver_Start_WaitFinish(t *testing.T) {
 	case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
 		require.Fail(t, "timeout")
 	}
+}
+
+// TestDockerDriver_Start_StoppedContainer asserts that Nomad will detect a
+// stopped task container, remove it, and start a new container.
+//
+// See https://github.com/hashicorp/nomad/issues/3419
+func TestDockerDriver_Start_StoppedContainer(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	tu.DockerCompatible(t)
+
+	taskCfg := newTaskConfig("", []string{"sleep", "9001"})
+	task := &drivers.TaskConfig{
+		ID:      uuid.Generate(),
+		Name:    "nc-demo",
+		AllocID: uuid.Generate(),
+		//Resources: basicResources,
+	}
+	require.NoError(t, task.EncodeConcreteDriverConfig(&taskCfg))
+
+	d := dockerDriverHarness(t, nil)
+	cleanup := d.MkAllocDir(task, true)
+	defer cleanup()
+	copyImage(t, task.TaskDir(), "busybox.tar")
+
+	/*
+		client := newTestDockerClient(t)
+
+			// Create a container of the same name but don't start it. This mimics
+			// the case of dockerd getting restarted and stopping containers while
+			// Nomad is watching them.
+			opts := docker.CreateContainerOptions{
+				Name: strings.Replace(task.ID, "/", "_", -1),
+				Config: &docker.Config{
+					Image: taskCfg.Image,
+					Cmd:   []string{"sleep", "9000"},
+					Env:   []string{fmt.Sprintf("test=%s", t.Name())},
+				},
+			}
+
+			if _, err := client.CreateContainer(opts); err != nil {
+				t.Fatalf("error creating initial container: %v", err)
+			}
+	*/
+
+	_, _, err := d.StartTask(task)
+	defer d.DestroyTask(task.ID, true)
+	require.NoError(t, err)
+
+	require.NoError(t, d.WaitUntilStarted(task.ID, 5*time.Second))
+	require.NoError(t, d.DestroyTask(task.ID, true))
 }

@@ -454,7 +454,47 @@ func (d *Driver) DestroyTask(taskID string, force bool) error {
 }
 
 func (d *Driver) InspectTask(taskID string) (*drivers.TaskStatus, error) {
-	return nil, fmt.Errorf("9 not implemented error")
+	h, ok := d.tasks.Get(taskID)
+	if !ok {
+		return nil, drivers.ErrTaskNotFound
+	}
+
+	container, err := h.client.ContainerInspect(h.ctx, h.containerID)
+	if err != nil {
+		return nil, fmt.Errorf("failed to inspect container %q. %w", h.containerID, err)
+	}
+
+	startedAt, err := time.Parse(time.RFC3339, container.State.StartedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse startedAt field. %w", err)
+	}
+
+	finishedAt, err := time.Parse(time.RFC3339, container.State.FinishedAt)
+	if err != nil {
+		return nil, fmt.Errorf("failed to parse startedAt field. %w", err)
+	}
+
+	status := &drivers.TaskStatus{
+		ID:          h.task.ID,
+		Name:        h.task.Name,
+		StartedAt:   startedAt,
+		CompletedAt: finishedAt,
+		DriverAttributes: map[string]string{
+			"container_id": container.ID,
+		},
+		NetworkOverride: h.net,
+		ExitResult:      h.ExitResult(),
+	}
+
+	status.State = drivers.TaskStateUnknown
+	if container.State.Running {
+		status.State = drivers.TaskStateRunning
+	}
+	if container.State.Dead {
+		status.State = drivers.TaskStateExited
+	}
+
+	return status, nil
 }
 
 func (d *Driver) TaskStats(ctx context.Context, taskID string, interval time.Duration) (<-chan *cstructs.TaskResourceUsage, error) {
