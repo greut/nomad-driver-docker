@@ -14,7 +14,6 @@ jobs:
     working_directory: /go/src/github.com/{{ORG_NAME}}/{{REPO_NAME}}
     steps:
       - checkout
-
       - run: go test -v ./...
 
   test-docker:
@@ -33,7 +32,6 @@ jobs:
             wget -O /tmp/golang.tar.gz https://dl.google.com/go/go${GOLANG_VERSION}.linux-amd64.tar.gz
             sudo tar -C /usr/local -xzf /tmp/golang.tar.gz
             rm -rf /tmp/golang.tar.gz
-      - run:
-          name: test
-          command: |
-            make test
+      - run: |
+          sudo -E PATH="/usr/local/go/bin:$PATH"
+          make test
