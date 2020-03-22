@@ -134,6 +134,45 @@ func TestDockerDriver_Start_Wait(t *testing.T) {
 	select {
 	case <-waitCh:
 		t.Fatalf("wait channel should not have received an exit result")
-	case <-time.After(1 * time.Second):
+	case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
+	}
+}
+
+func TestDockerDriver_Start_WaitFinish(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	tu.DockerCompatible(t)
+
+	taskCfg := newTaskConfig("", []string{"echo", "hello"})
+	task := &drivers.TaskConfig{
+		ID:      uuid.Generate(),
+		Name:    "nc-demo",
+		AllocID: uuid.Generate(),
+		//Resources: basicResources,
+	}
+	require.NoError(t, task.EncodeConcreteDriverConfig(&taskCfg))
+
+	d := dockerDriverHarness(t, nil)
+	cleanup := d.MkAllocDir(task, true)
+	defer cleanup()
+	//copyImage(t, task.TaskDir(), "busybox.tar")
+
+	_, _, err := d.StartTask(task)
+	require.NoError(t, err)
+
+	defer d.DestroyTask(task.ID, true)
+
+	// Attempt to wait
+	waitCh, err := d.WaitTask(context.Background(), task.ID)
+	require.NoError(t, err)
+
+	select {
+	case res := <-waitCh:
+		if !res.Successful() {
+			require.Fail(t, "ExitResult should be successful: %v", res)
+		}
+	case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
+		require.Fail(t, "timeout")
 	}
 }

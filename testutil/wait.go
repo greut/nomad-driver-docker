@@ -18,3 +18,13 @@ func IsAppVeyor() bool {
 	_, ok := os.LookupEnv("APPVEYOR")
 	return ok
 }
+
+// TestMultiplier returns a multiplier for retries and waits given environment
+// the tests are being run under.
+func TestMultiplier() int64 {
+	if IsCI() {
+		return 4
+	}
+
+	return 1
+}
