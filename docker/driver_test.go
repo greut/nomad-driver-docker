@@ -5,9 +5,12 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
+	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/client"
 	tu "github.com/greut/nomad-driver-docker/testutil"
 	"github.com/hashicorp/nomad/client/allocdir"
@@ -247,27 +250,27 @@ func TestDockerDriver_Start_StoppedContainer(t *testing.T) {
 	defer cleanup()
 	copyImage(t, task.TaskDir(), "busybox.tar")
 
-	/*
-		client := newTestDockerClient(t)
+	client := newTestDockerClient(t)
 
-			// Create a container of the same name but don't start it. This mimics
-			// the case of dockerd getting restarted and stopping containers while
-			// Nomad is watching them.
-			opts := docker.CreateContainerOptions{
-				Name: strings.Replace(task.ID, "/", "_", -1),
-				Config: &docker.Config{
-					Image: taskCfg.Image,
-					Cmd:   []string{"sleep", "9000"},
-					Env:   []string{fmt.Sprintf("test=%s", t.Name())},
-				},
-			}
+	// Create a container of the same name but don't start it. This mimics
+	// the case of dockerd getting restarted and stopping containers while
+	// Nomad is watching them.
+	_, err := client.ContainerCreate(
+		context.Background(),
+		&container.Config{
+			Image: taskCfg.Image,
+			Cmd:   []string{"sleep", "9000"},
+		},
+		&container.HostConfig{},
+		&network.NetworkingConfig{},
+		strings.Replace(task.ID, "/", "_", -1),
+	)
 
-			if _, err := client.CreateContainer(opts); err != nil {
-				t.Fatalf("error creating initial container: %v", err)
-			}
-	*/
+	if err != nil {
+		t.Fatalf("container creation failure. %s", err)
+	}
 
-	_, _, err := d.StartTask(task)
+	_, _, err = d.StartTask(task)
 	defer d.DestroyTask(task.ID, true)
 	require.NoError(t, err)
 
