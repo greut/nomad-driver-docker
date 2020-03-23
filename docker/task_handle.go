@@ -213,8 +213,8 @@ outer:
 			exitCode = int(body.StatusCode)
 
 			if exitCode != 0 {
-				h.logger.Error("docker container exited with error %d: %s", body.StatusCode, body.Error)
-				err = fmt.Errorf("docker container exited with non-zero exit code: %d", body.StatusCode)
+				h.logger.Error("docker container exited with error", "code", exitCode, "error", body.Error)
+				err = fmt.Errorf("docker container exited with non-zero exit code: %d", exitCode)
 			}
 
 			break outer

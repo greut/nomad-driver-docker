@@ -16,6 +16,7 @@ import (
 	"github.com/hashicorp/consul-template/signals"
 	"github.com/hashicorp/go-hclog"
 	cstructs "github.com/hashicorp/nomad/client/structs"
+	"github.com/hashicorp/nomad/client/taskenv"
 	"github.com/hashicorp/nomad/drivers/shared/eventer"
 	"github.com/hashicorp/nomad/helper"
 	nstructs "github.com/hashicorp/nomad/nomad/structs"
@@ -291,14 +292,23 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	}
 	d.logger.Debug("container creation", "image", config.Image, "command", cmd)
 
+	// Mounting volumes
+	allocDirBind := fmt.Sprintf("%s:%s", task.TaskDir().SharedAllocDir, task.Env[taskenv.AllocDir])
+	taskLocalBind := fmt.Sprintf("%s:%s", task.TaskDir().LocalDir, task.Env[taskenv.TaskLocalDir])
+	secretDirBind := fmt.Sprintf("%s:%s", task.TaskDir().SecretsDir, task.Env[taskenv.SecretsDir])
+	binds := []string{allocDirBind, taskLocalBind, secretDirBind}
+
 	_, err = client.ContainerCreate(
 		d.ctx,
 		&container.Config{
 			Image:  config.Image,
 			Cmd:    cmd,
 			Labels: config.Labels,
+			Env:    task.EnvList(),
 		},
-		&container.HostConfig{},
+		&container.HostConfig{
+			Binds: binds,
+		},
 		&network.NetworkingConfig{},
 		containerName,
 	)
