@@ -298,13 +298,17 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	secretDirBind := fmt.Sprintf("%s:%s", task.TaskDir().SecretsDir, task.Env[taskenv.SecretsDir])
 	binds := []string{allocDirBind, taskLocalBind, secretDirBind}
 
+	// XXX figure out how to get ENV from the image.
+	task.Env["PATH"] = "/bin:/sbin:/usr/bin:/usr/local/bin"
+	env := task.EnvList()
+
 	_, err = client.ContainerCreate(
 		d.ctx,
 		&container.Config{
 			Image:  config.Image,
 			Cmd:    cmd,
 			Labels: config.Labels,
-			Env:    task.EnvList(),
+			Env:    env,
 		},
 		&container.HostConfig{
 			Binds: binds,

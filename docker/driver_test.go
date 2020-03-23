@@ -285,7 +285,7 @@ func TestDockerDriver_Start_LoadImage(t *testing.T) {
 	}
 	tu.DockerCompatible(t)
 
-	taskCfg := newTaskConfig("", []string{"/bin/sh", "-c", "echo hello > $NOMAD_TASK_DIR/output"})
+	taskCfg := newTaskConfig("", []string{"sh", "-c", "echo hello > $NOMAD_TASK_DIR/output"})
 	task := &drivers.TaskConfig{
 		ID:      uuid.Generate(),
 		Name:    "busybox-demo",
@@ -326,4 +326,34 @@ func TestDockerDriver_Start_LoadImage(t *testing.T) {
 	if strings.TrimSpace(string(act)) != exp {
 		t.Fatalf("Command outputted %v; want %v", act, exp)
 	}
+}
+
+// Tests that starting a task without an image fails
+func TestDockerDriver_Start_NoImage(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	tu.DockerCompatible(t)
+
+	taskCfg := TaskConfig{
+		Command: "echo",
+		Args:    []string{"foo"},
+	}
+	task := &drivers.TaskConfig{
+		ID:      uuid.Generate(),
+		Name:    "echo",
+		AllocID: uuid.Generate(),
+		//Resources: basicResources,
+	}
+	require.NoError(t, task.EncodeConcreteDriverConfig(&taskCfg))
+
+	d := dockerDriverHarness(t, nil)
+	cleanup := d.MkAllocDir(task, false)
+	defer cleanup()
+
+	_, _, err := d.StartTask(task)
+	require.Error(t, err)
+	require.Contains(t, err.Error(), "image name required")
+
+	d.DestroyTask(task.ID, true)
 }
