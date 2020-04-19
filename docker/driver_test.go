@@ -603,3 +603,71 @@ func TestDockerDriver_StartN(t *testing.T) {
 
 	t.Log("Test complete!")
 }
+
+func TestDockerDriver_StartNVersions(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+
+	require := require.New(t)
+
+	task1, cfg1, ports1 := dockerTask(t)
+	defer freeport.Return(ports1)
+	tcfg1 := newTaskConfig("", []string{"echo", "hello"})
+	cfg1.Image = tcfg1.Image
+	cfg1.LoadImage = tcfg1.LoadImage
+	require.NoError(task1.EncodeConcreteDriverConfig(cfg1))
+
+	task2, cfg2, ports2 := dockerTask(t)
+	defer freeport.Return(ports2)
+	tcfg2 := newTaskConfig("musl", []string{"echo", "hello"})
+	cfg2.Image = tcfg2.Image
+	cfg2.LoadImage = tcfg2.LoadImage
+	require.NoError(task2.EncodeConcreteDriverConfig(cfg2))
+
+	task3, cfg3, ports3 := dockerTask(t)
+	defer freeport.Return(ports3)
+	tcfg3 := newTaskConfig("glibc", []string{"echo", "hello"})
+	cfg3.Image = tcfg3.Image
+	cfg3.LoadImage = tcfg3.LoadImage
+	require.NoError(task3.EncodeConcreteDriverConfig(cfg3))
+
+	taskList := []*drivers.TaskConfig{task1, task2, task3}
+
+	t.Logf("Starting %d tasks", len(taskList))
+	d := dockerDriverHarness(t, nil)
+
+	// Let's spin up a bunch of things
+	for _, task := range taskList {
+		cleanup := d.MkAllocDir(task, true)
+		defer cleanup()
+		copyImage(t, task.TaskDir(), "busybox.tar")
+		copyImage(t, task.TaskDir(), "busybox_musl.tar")
+		copyImage(t, task.TaskDir(), "busybox_glibc.tar")
+		_, _, err := d.StartTask(task)
+		require.NoError(err)
+
+		require.NoError(d.WaitUntilStarted(task.ID, 5*time.Second))
+	}
+
+	defer d.DestroyTask(task3.ID, true)
+	defer d.DestroyTask(task2.ID, true)
+	defer d.DestroyTask(task1.ID, true)
+
+	t.Log("All tasks are started. Terminating...")
+	for _, task := range taskList {
+		require.NoError(d.StopTask(task.ID, time.Second, "SIGINT"))
+
+		// Attempt to wait
+		waitCh, err := d.WaitTask(context.Background(), task.ID)
+		require.NoError(err)
+
+		select {
+		case <-waitCh:
+		case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
+			require.Fail("timeout waiting on task")
+		}
+	}
+
+	t.Log("Test complete!")
+}

@@ -3,6 +3,9 @@ package docker
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
+	"os"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -265,29 +268,12 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 		return nil, nil, fmt.Errorf("failed to obtain a docker client. %w", err)
 	}
 
-	// Pull image
-	d.logger.Debug("pulling docker image", "image", config.Image)
-
-	d.eventer.EmitEvent(&drivers.TaskEvent{
-		TaskID:    task.ID,
-		AllocID:   task.AllocID,
-		TaskName:  task.Name,
-		Timestamp: time.Now(),
-		Message:   "Downloading image",
-		Annotations: map[string]string{
-			"image": config.Image,
-		},
-	})
-
-	ctx, cancel := context.WithTimeout(d.ctx, d.config.pullActivityTimeoutDuration)
-	defer cancel()
-
-	imageID, err := d.coordinator.PullImage(
-		ctx,
-		config.Image,
-		task.ID,
-		d.emitEventFunc(task),
-	)
+	var imageID string
+	if config.LoadImage != "" {
+		imageID, err = d.loadImage(config, task)
+	} else {
+		imageID, err = d.pullImage(config, task)
+	}
 
 	if err != nil {
 		return nil, nil, err
@@ -417,6 +403,71 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	go h.run()
 
 	return handle, net, nil
+}
+
+func (d *Driver) loadImage(config *TaskConfig, task *drivers.TaskConfig) (string, error) {
+	d.logger.Debug("loading docker image", "image", config.LoadImage)
+
+	d.eventer.EmitEvent(&drivers.TaskEvent{
+		TaskID:    task.ID,
+		AllocID:   task.AllocID,
+		TaskName:  task.Name,
+		Timestamp: time.Now(),
+		Message:   "Loading image",
+		Annotations: map[string]string{
+			"image": config.LoadImage,
+		},
+	})
+
+	archive := filepath.Join(task.TaskDir().LocalDir, config.LoadImage)
+	d.logger.Debug("loading image from disk", "archive", archive)
+
+	f, err := os.Open(archive)
+	if err != nil {
+		return "", fmt.Errorf("unable to open image archive: %s. %w", archive, err)
+	}
+	defer f.Close()
+
+	r, err := d.client.ImageLoad(d.ctx, f, false)
+	if err != nil {
+		return "", fmt.Errorf("unable to load image archive: %s. %w", archive, err)
+	}
+	defer r.Body.Close()
+
+	b, err := ioutil.ReadAll(r.Body)
+	if err != nil {
+		return "", fmt.Errorf("unable to read response")
+	}
+
+	d.logger.Debug("loaded archive", "body", string(b))
+
+	return "", fmt.Errorf("not implemented error")
+}
+
+func (d *Driver) pullImage(config *TaskConfig, task *drivers.TaskConfig) (string, error) {
+	// Pull image
+	d.logger.Debug("pulling docker image", "image", config.Image)
+
+	d.eventer.EmitEvent(&drivers.TaskEvent{
+		TaskID:    task.ID,
+		AllocID:   task.AllocID,
+		TaskName:  task.Name,
+		Timestamp: time.Now(),
+		Message:   "Downloading image",
+		Annotations: map[string]string{
+			"image": config.Image,
+		},
+	})
+
+	ctx, cancel := context.WithTimeout(d.ctx, d.config.pullActivityTimeoutDuration)
+	defer cancel()
+
+	return d.coordinator.PullImage(
+		ctx,
+		config.Image,
+		task.ID,
+		d.emitEventFunc(task),
+	)
 }
 
 func (d *Driver) WaitTask(ctx context.Context, taskID string) (<-chan *drivers.ExitResult, error) {
