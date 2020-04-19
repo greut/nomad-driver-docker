@@ -460,3 +460,146 @@ func TestDockerDriver_Start_Wait_AllocDir(t *testing.T) {
 		t.Fatalf("Command outputted %v; want %v", act, exp)
 	}
 }
+
+func TestDockerDriver_Start_Kill_Wait(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+
+	taskCfg := newTaskConfig("", busyboxLongRunningCmd)
+	task := &drivers.TaskConfig{
+		ID:      uuid.Generate(),
+		Name:    "busybox-demo",
+		AllocID: uuid.Generate(),
+		//Resources: basicResources,
+	}
+	require.NoError(t, task.EncodeConcreteDriverConfig(&taskCfg))
+
+	d := dockerDriverHarness(t, nil)
+	cleanup := d.MkAllocDir(task, true)
+	defer cleanup()
+	copyImage(t, task.TaskDir(), "busybox.tar")
+
+	_, _, err := d.StartTask(task)
+	require.NoError(t, err)
+
+	defer d.DestroyTask(task.ID, true)
+
+	go func(t *testing.T) {
+		time.Sleep(100 * time.Millisecond)
+		signal := "SIGINT"
+		require.NoError(t, d.StopTask(task.ID, time.Second, signal))
+	}(t)
+
+	// Attempt to wait
+	waitCh, err := d.WaitTask(context.Background(), task.ID)
+	require.NoError(t, err)
+
+	select {
+	case res := <-waitCh:
+		if res.Successful() {
+			require.Fail(t, "ExitResult should err: %v", res)
+		}
+	case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
+		require.Fail(t, "timeout")
+	}
+}
+
+func TestDockerDriver_Start_KillTimeout(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+
+	timeout := 2 * time.Second
+	taskCfg := newTaskConfig("", []string{"sleep", "10"})
+	task := &drivers.TaskConfig{
+		ID:      uuid.Generate(),
+		Name:    "busybox-demo",
+		AllocID: uuid.Generate(),
+		//Resources: basicResources,
+	}
+	require.NoError(t, task.EncodeConcreteDriverConfig(&taskCfg))
+
+	d := dockerDriverHarness(t, nil)
+	cleanup := d.MkAllocDir(task, true)
+	defer cleanup()
+	copyImage(t, task.TaskDir(), "busybox.tar")
+
+	_, _, err := d.StartTask(task)
+	require.NoError(t, err)
+
+	defer d.DestroyTask(task.ID, true)
+
+	var killSent time.Time
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		killSent = time.Now()
+		require.NoError(t, d.StopTask(task.ID, timeout, "SIGUSR1"))
+	}()
+
+	// Attempt to wait
+	waitCh, err := d.WaitTask(context.Background(), task.ID)
+	require.NoError(t, err)
+
+	var killed time.Time
+	select {
+	case <-waitCh:
+		killed = time.Now()
+	case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
+		require.Fail(t, "timeout")
+	}
+
+	require.True(t, killed.Sub(killSent) > timeout)
+}
+
+func TestDockerDriver_StartN(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+
+	require := require.New(t)
+
+	task1, _, ports1 := dockerTask(t)
+	defer freeport.Return(ports1)
+
+	task2, _, ports2 := dockerTask(t)
+	defer freeport.Return(ports2)
+
+	task3, _, ports3 := dockerTask(t)
+	defer freeport.Return(ports3)
+
+	taskList := []*drivers.TaskConfig{task1, task2, task3}
+
+	t.Logf("Starting %d tasks", len(taskList))
+
+	d := dockerDriverHarness(t, nil)
+	// Let's spin up a bunch of things
+	for _, task := range taskList {
+		cleanup := d.MkAllocDir(task, true)
+		defer cleanup()
+		copyImage(t, task.TaskDir(), "busybox.tar")
+		_, _, err := d.StartTask(task)
+		require.NoError(err)
+	}
+
+	defer d.DestroyTask(task3.ID, true)
+	defer d.DestroyTask(task2.ID, true)
+	defer d.DestroyTask(task1.ID, true)
+
+	t.Log("All tasks are started. Terminating...")
+	for _, task := range taskList {
+		require.NoError(d.StopTask(task.ID, time.Second, "SIGINT"))
+
+		// Attempt to wait
+		waitCh, err := d.WaitTask(context.Background(), task.ID)
+		require.NoError(err)
+
+		select {
+		case <-waitCh:
+		case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
+			require.Fail("timeout waiting on task")
+		}
+	}
+
+	t.Log("Test complete!")
+}
