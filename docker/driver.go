@@ -3,7 +3,6 @@ package docker
 import (
 	"context"
 	"fmt"
-	"io/ioutil"
 	"strings"
 	"sync"
 	"time"
@@ -202,6 +201,16 @@ func (d *Driver) SetConfig(c *base.Config) error {
 	}
 
 	// XXX parse the duration
+	if len(d.config.PullActivityTimeout) > 0 {
+		dur, err := time.ParseDuration(d.config.PullActivityTimeout)
+		if err != nil {
+			return fmt.Errorf("failed to parse 'pull_activity_timeout' duaration: %v", err)
+		}
+		if dur < pullActivityTimeoutMinimum {
+			return fmt.Errorf("pull_activity_timeout is less than minimum, %v", pullActivityTimeoutMinimum)
+		}
+		d.config.pullActivityTimeoutDuration = dur
+	}
 
 	if c.AgentConfig != nil {
 		d.clientConfig = c.AgentConfig.Driver
@@ -254,22 +263,34 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 		return nil, nil, fmt.Errorf("failed to obtain a docker client. %w", err)
 	}
 
+	// Pull image
 	d.logger.Debug("pulling docker image", "image", config.Image)
 
-	closer, err := client.ImagePull(d.ctx, config.Image, types.ImagePullOptions{})
+	d.eventer.EmitEvent(&drivers.TaskEvent{
+		TaskID:    task.ID,
+		AllocID:   task.AllocID,
+		TaskName:  task.Name,
+		Timestamp: time.Now(),
+		Message:   "Downloading image",
+		Annotations: map[string]string{
+			"image": config.Image,
+		},
+	})
+
+	imageID, err := d.coordinator.PullImage(
+		config.Image,
+		task.ID,
+		d.emitEventFunc(task),
+		d.config.pullActivityTimeoutDuration,
+	)
+
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to pull the image %q. %w", config.Image, err)
+		return nil, nil, err
 	}
 
-	defer closer.Close()
+	d.logger.Debug("image pulled", "image_id", imageID)
 
-	b, err := ioutil.ReadAll(closer)
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to read image pull operation. %w", err)
-	}
-
-	// XXX b is a stream of JSON documents
-	d.logger.Debug("image pulled", "output", string(b))
+	// Create container
 
 	containerName := fmt.Sprintf(
 		"%s-%s", strings.Replace(task.Name, "/", "_", -1),
@@ -585,6 +606,19 @@ func (d *Driver) detectIP(c *types.ContainerJSON, config *TaskConfig) (string, b
 	}
 
 	return ip, false
+}
+
+func (d *Driver) emitEventFunc(task *drivers.TaskConfig) LogEventFn {
+	return func(msg string, annotations map[string]string) {
+		d.eventer.EmitEvent(&drivers.TaskEvent{
+			TaskID:      task.ID,
+			AllocID:     task.AllocID,
+			TaskName:    task.Name,
+			Timestamp:   time.Now(),
+			Message:     msg,
+			Annotations: annotations,
+		})
+	}
 }
 
 func (d *Driver) setDetected(detected bool) {

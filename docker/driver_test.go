@@ -357,3 +357,40 @@ func TestDockerDriver_Start_NoImage(t *testing.T) {
 
 	d.DestroyTask(task.ID, true)
 }
+
+func TestDockerDriver_Start_BadPull_Recoverable(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	tu.DockerCompatible(t)
+
+	taskCfg := TaskConfig{
+		Image:   "127.0.0.1:32121/foo", // bad path
+		Command: "echo",
+		Args: []string{
+			"hello",
+		},
+	}
+	task := &drivers.TaskConfig{
+		ID:      uuid.Generate(),
+		Name:    "busybox-demo",
+		AllocID: uuid.Generate(),
+		//Resources: basicResources,
+	}
+	require.NoError(t, task.EncodeConcreteDriverConfig(&taskCfg))
+
+	d := dockerDriverHarness(t, nil)
+	cleanup := d.MkAllocDir(task, true)
+	defer cleanup()
+
+	_, _, err := d.StartTask(task)
+	require.Error(t, err)
+
+	defer d.DestroyTask(task.ID, true)
+
+	if rerr, ok := err.(*structs.RecoverableError); !ok {
+		t.Fatalf("want recoverable error: %+v", err)
+	} else if !rerr.IsRecoverable() {
+		t.Fatalf("error not recoverable: %+v", err)
+	}
+}

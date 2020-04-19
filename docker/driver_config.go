@@ -5,9 +5,14 @@ import (
 )
 
 type DriverConfig struct {
-	Endpoint string   `codec:"endpoint"`
-	GC       GCConfig `codec:"gc"`
+	Endpoint                    string        `codec:"endpoint"`
+	GC                          GCConfig      `codec:"gc"`
+	PullActivityTimeout         string        `codec:""pull_activity_timeout`
+	pullActivityTimeoutDuration time.Duration `codec:"-"`
 }
+
+const danglingContainersCreationGraceMinimum = 1 * time.Minute
+const pullActivityTimeoutMinimum = 1 * time.Minute
 
 type GCConfig struct {
 	Image              bool              `codec:"image"`

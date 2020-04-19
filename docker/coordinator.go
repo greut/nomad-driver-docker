@@ -2,6 +2,7 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -64,4 +65,27 @@ func newCoordinator(config *coordinatorConfig) *coordinator {
 		imageRefCount:     make(map[string]map[string]struct{}),
 		deleteFuture:      make(map[string]context.CancelFunc),
 	}
+}
+
+func (c *coordinator) PullImage(image string, callerID string, emitFn LogEventFn, timeout time.Duration) (imageID error, err error) {
+	/*
+
+		closer, err := client.ImagePull(d.ctx, config.Image, types.ImagePullOptions{})
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to pull the image %q. %w", config.Image, err)
+		}
+
+		defer closer.Close()
+
+		b, err := ioutil.ReadAll(closer)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to read image pull operation. %w", err)
+		}
+
+		// XXX b is a stream of JSON documents
+		d.logger.Debug("image pulled", "output", string(b))
+
+
+	*/
+	return nil, fmt.Errorf("not implemented error %s", image)
 }
