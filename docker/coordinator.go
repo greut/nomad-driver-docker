@@ -1,9 +1,12 @@
 package docker
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
+	"io"
+	"strings"
 	"sync"
 	"time"
 
@@ -119,22 +122,48 @@ func (c *coordinator) pullImageImpl(ctx context.Context, image string, future *p
 	if err != nil {
 		future.set("", structs.NewRecoverableError(
 			fmt.Errorf("failed to pull %q. %w", image, err),
-			false,
+			true,
 		))
 		return
 	}
 
 	defer closer.Close()
 
-	b, err := ioutil.ReadAll(closer)
-	if err != nil {
-		future.set("", fmt.Errorf("failed to read image pull operation. %w", err))
-		return
+	reader := bufio.NewReader(closer)
+
+	sha256 := ""
+	line := struct {
+		Status string `json:"status"`
+		ID     string `json:"id,omitempty"`
+	}{}
+
+	for {
+		l, _, err := reader.ReadLine()
+		if err != nil || (len(l) == 0 && err == io.EOF) {
+			if line.Status != "" {
+				future.set("", fmt.Errorf("failed to pull image: %s. %w", line.Status, err))
+			} else {
+				future.set("", fmt.Errorf("failed to read image pull operation. %w", err))
+			}
+			return
+		}
+
+		c.logger.Debug("pull event", "line", string(l))
+
+		if err := json.Unmarshal(l, &line); err != nil {
+			future.set("", fmt.Errorf("failed to unmarshall JSON message, %q. %w", string(l), err))
+			return
+		}
+
+		if strings.HasPrefix(line.Status, "Digest: sha256:") {
+			sha256 = line.Status[15:]
+			break
+		}
 	}
 
-	c.logger.Debug("image pulled", "output", string(b))
+	c.logger.Debug("image pulled", "sha256", sha256)
 
-	future.set("", fmt.Errorf("not implemented error %q", image))
+	future.set(sha256, nil)
 	return
 }
 

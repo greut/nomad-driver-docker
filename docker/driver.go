@@ -200,16 +200,17 @@ func (d *Driver) SetConfig(c *base.Config) error {
 		d.config.GC.imageDelayDuration = dur
 	}
 
-	// XXX parse the duration
 	if len(d.config.PullActivityTimeout) > 0 {
 		dur, err := time.ParseDuration(d.config.PullActivityTimeout)
 		if err != nil {
-			return fmt.Errorf("failed to parse 'pull_activity_timeout' duaration: %v", err)
+			return fmt.Errorf("failed to parse 'pull_activity_timeout' duration: %v", err)
 		}
 		if dur < pullActivityTimeoutMinimum {
 			return fmt.Errorf("pull_activity_timeout is less than minimum, %v", pullActivityTimeoutMinimum)
 		}
 		d.config.pullActivityTimeoutDuration = dur
+	} else {
+		d.config.pullActivityTimeoutDuration = pullActivityTimeoutMinimum
 	}
 
 	if c.AgentConfig != nil {
@@ -223,6 +224,7 @@ func (d *Driver) SetConfig(c *base.Config) error {
 
 	coordinatorConfig := &coordinatorConfig{
 		client: dockerClient,
+		logger: d.logger,
 	}
 
 	d.coordinator = newCoordinator(coordinatorConfig)
