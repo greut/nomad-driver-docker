@@ -1,9 +1,5 @@
 package docker
 
-import (
-	"context"
-)
-
 // pullFuture is a sharable future for retrieving a pulled images ID and any
 // error that may have occurred during the pull.
 type pullFuture struct {
@@ -21,13 +17,8 @@ func newPullFuture() *pullFuture {
 }
 
 // wait waits till the future has a result
-func (p *pullFuture) wait(ctx context.Context) (*pullFuture, error) {
-	select {
-	case <-ctx.Done():
-		return p, ctx.Err()
-	case <-p.waitChan:
-		return p, nil
-	}
+func (p *pullFuture) wait() <-chan struct{} {
+	return p.waitChan
 }
 
 // result returns the results of the future and should only ever be called after

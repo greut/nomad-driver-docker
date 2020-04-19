@@ -3,11 +3,14 @@ package docker
 import (
 	"context"
 	"fmt"
+	"io/ioutil"
 	"sync"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	docker "github.com/docker/docker/client"
 	"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/nomad/nomad/structs"
 )
 
 // LogEventFn is a callback which allows Drivers to emit task events.
@@ -51,7 +54,7 @@ type coordinator struct {
 	pullLoggerLock sync.RWMutex
 
 	// imageRefCount is the reference counter of image IDs
-	imageRefCount map[string]map[string]struct{}
+	imageRefCount map[string]map[string]*struct{}
 
 	// deleteFuture is indexed by image ID and has a cancelable delete future
 	deleteFuture map[string]context.CancelFunc
@@ -62,30 +65,115 @@ func newCoordinator(config *coordinatorConfig) *coordinator {
 		coordinatorConfig: config,
 		pullFutures:       make(map[string]*pullFuture),
 		pullLoggers:       make(map[string][]LogEventFn),
-		imageRefCount:     make(map[string]map[string]struct{}),
+		imageRefCount:     make(map[string]map[string]*struct{}),
 		deleteFuture:      make(map[string]context.CancelFunc),
 	}
 }
 
-func (c *coordinator) PullImage(image string, callerID string, emitFn LogEventFn, timeout time.Duration) (imageID error, err error) {
-	/*
+func (c *coordinator) PullImage(ctx context.Context, image string, callerID string, emitFn LogEventFn) (string, error) {
+	c.imageLock.Lock()
 
-		closer, err := client.ImagePull(d.ctx, config.Image, types.ImagePullOptions{})
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to pull the image %q. %w", config.Image, err)
-		}
+	c.registerPullLogger(image, emitFn)
+	defer c.clearPullLogger(image)
 
-		defer closer.Close()
+	future, ok := c.pullFutures[image]
+	if !ok {
+		future = newPullFuture()
+		c.pullFutures[image] = future
 
-		b, err := ioutil.ReadAll(closer)
-		if err != nil {
-			return nil, nil, fmt.Errorf("failed to read image pull operation. %w", err)
-		}
+		go c.pullImageImpl(ctx, image, future)
+	}
 
-		// XXX b is a stream of JSON documents
-		d.logger.Debug("image pulled", "output", string(b))
+	c.imageLock.Unlock()
 
+	select {
+	case <-ctx.Done():
+		// consume the channel
+		<-future.wait()
 
-	*/
-	return nil, fmt.Errorf("not implemented error %s", image)
+		return "", structs.NewRecoverableError(
+			fmt.Errorf("failed to pull %q. %w", image, ctx.Err()),
+			true,
+		)
+	case <-future.wait():
+	}
+
+	id, err := future.result()
+
+	c.imageLock.Lock()
+	defer c.imageLock.Unlock()
+
+	if _, ok := c.pullFutures[image]; ok {
+		delete(c.pullFutures, image)
+	}
+
+	if err == nil && c.cleanup {
+		c.incrementImageReferenceImpl(id, image, callerID)
+	}
+
+	return id, err
+}
+
+func (c *coordinator) pullImageImpl(ctx context.Context, image string, future *pullFuture) {
+	closer, err := c.client.ImagePull(ctx, image, types.ImagePullOptions{})
+	if err != nil {
+		future.set("", structs.NewRecoverableError(
+			fmt.Errorf("failed to pull %q. %w", image, err),
+			false,
+		))
+		return
+	}
+
+	defer closer.Close()
+
+	b, err := ioutil.ReadAll(closer)
+	if err != nil {
+		future.set("", fmt.Errorf("failed to read image pull operation. %w", err))
+		return
+	}
+
+	c.logger.Debug("image pulled", "output", string(b))
+
+	future.set("", fmt.Errorf("not implemented error %q", image))
+	return
+}
+
+func (c *coordinator) registerPullLogger(image string, logger LogEventFn) {
+	c.pullLoggerLock.Lock()
+	defer c.pullLoggerLock.Unlock()
+
+	if _, ok := c.pullLoggers[image]; ok {
+		c.pullLoggers[image] = make([]LogEventFn, 0, 1)
+	}
+
+	c.pullLoggers[image] = append(c.pullLoggers[image], logger)
+}
+
+func (c *coordinator) clearPullLogger(image string) {
+	c.pullLoggerLock.Lock()
+	defer c.pullLoggerLock.Unlock()
+
+	delete(c.pullLoggers, image)
+}
+
+// incrementImageReferenceImpl ...
+//
+// It assumes the lock is held
+func (c *coordinator) incrementImageReferenceImpl(id, image, callerID string) {
+	if cancel, ok := c.deleteFuture[id]; ok {
+		c.logger.Debug("cancelling removal of container image", "image", image)
+		cancel()
+		delete(c.deleteFuture, id)
+	}
+
+	references, ok := c.imageRefCount[id]
+	if !ok {
+		references = make(map[string]*struct{})
+		c.imageRefCount[id] = references
+	}
+
+	if _, ok := references[callerID]; !ok {
+		references[callerID] = nil
+		c.logger.Debug("image reference count incremented", "image", image, "id", id, "refcount", len(references))
+	}
 }

@@ -280,8 +280,8 @@ github.com/gorilla/websocket v1.4.1/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/ad
 github.com/gorilla/websocket v1.4.2 h1:+/TMaTYc4QFitKJxsQ7Yye35DkWvkdLcvGKqM+x0Ufc=
 github.com/gorilla/websocket v1.4.2/go.mod h1:YR8l580nyteQvAITg2hZ9XVh4b55+EU/adAjf1fMHhE=
 github.com/gregjones/httpcache v0.0.0-20180305231024-9cad4c3443a7/go.mod h1:FecbI9+v66THATjSRHfNgh1IVFe/9kFxbXtjV0ctIMA=
-github.com/greut/nomad v0.10.3-0.20200419094448-1a17ebfbddd0 h1:aZOK6D2rCSyBdBBIi3vyH8CEjzYCv6JXbdTmYl/GmCQ=
-github.com/greut/nomad v0.10.3-0.20200419094448-1a17ebfbddd0/go.mod h1:tWJucRn42FwVQmdPHCchZydPxcI9Mk7gakXLLefaWYo=
+github.com/greut/nomad v0.10.3-0.20200419140307-b9aeaf947ba9 h1:eUD7/z5SUnddpPor5HX49WP9kiAxclgWmCN140aO23Q=
+github.com/greut/nomad v0.10.3-0.20200419140307-b9aeaf947ba9/go.mod h1:tWJucRn42FwVQmdPHCchZydPxcI9Mk7gakXLLefaWYo=
 github.com/grpc-ecosystem/go-grpc-middleware v1.2.0 h1:0IKlLyQ3Hs9nDaiK5cSHAGmcQEIC8l2Ts1u6x5Dfrqg=
 github.com/grpc-ecosystem/go-grpc-middleware v1.2.0/go.mod h1:mJzapYve32yjrKlk9GbyCZHuPgZsrbyIbyKhSzOpg6s=
 github.com/hashicorp/consul v1.7.2 h1:pDEnRiUE8jOUlxIqzo8Jw3Zcsz6KSpygk2BjkrsASsk=

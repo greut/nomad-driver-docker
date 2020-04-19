@@ -277,11 +277,14 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 		},
 	})
 
+	ctx, cancel := context.WithTimeout(d.ctx, d.config.pullActivityTimeoutDuration)
+	defer cancel()
+
 	imageID, err := d.coordinator.PullImage(
+		ctx,
 		config.Image,
 		task.ID,
 		d.emitEventFunc(task),
-		d.config.pullActivityTimeoutDuration,
 	)
 
 	if err != nil {
