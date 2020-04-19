@@ -2,10 +2,12 @@ package docker
 
 import (
 	"context"
+	"fmt"
 	"io"
 	"io/ioutil"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -15,6 +17,7 @@ import (
 	docker "github.com/docker/docker/client"
 	tu "github.com/greut/nomad-driver-docker/testutil"
 	"github.com/hashicorp/nomad/client/allocdir"
+	"github.com/hashicorp/nomad/client/taskenv"
 	"github.com/hashicorp/nomad/helper/freeport"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers"
@@ -392,5 +395,68 @@ func TestDockerDriver_Start_BadPull_Recoverable(t *testing.T) {
 		t.Fatalf("want recoverable error: %+v", err)
 	} else if !rerr.IsRecoverable() {
 		t.Fatalf("error not recoverable: %+v", err)
+	}
+}
+
+func TestDockerDriver_Start_Wait_AllocDir(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	// This test requires that the alloc dir be mounted into docker as a volume.
+	// Because this cannot happen when docker is run remotely, e.g. when running
+	// docker in a VM, we skip this when we detect Docker is being run remotely.
+	//if !testutil.DockerIsConnected(t) || dockerIsRemote(t) {
+	//	t.Skip("Docker not connected")
+	//}
+
+	exp := []byte{'w', 'i', 'n'}
+	file := "output.txt"
+
+	taskCfg := newTaskConfig("", []string{
+		"sh",
+		"-c",
+		fmt.Sprintf(`sleep 1; echo -n %s > $%s/%s`,
+			string(exp), taskenv.AllocDir, file),
+	})
+	task := &drivers.TaskConfig{
+		ID:      uuid.Generate(),
+		Name:    "busybox-demo",
+		AllocID: uuid.Generate(),
+		//Resources: basicResources,
+	}
+	require.NoError(t, task.EncodeConcreteDriverConfig(&taskCfg))
+
+	d := dockerDriverHarness(t, nil)
+	cleanup := d.MkAllocDir(task, true)
+	defer cleanup()
+	copyImage(t, task.TaskDir(), "busybox.tar")
+
+	_, _, err := d.StartTask(task)
+	require.NoError(t, err)
+
+	defer d.DestroyTask(task.ID, true)
+
+	// Attempt to wait
+	waitCh, err := d.WaitTask(context.Background(), task.ID)
+	require.NoError(t, err)
+
+	select {
+	case res := <-waitCh:
+		if !res.Successful() {
+			require.Fail(t, fmt.Sprintf("ExitResult should be successful: %v", res))
+		}
+	case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
+		require.Fail(t, "timeout")
+	}
+
+	// Check that data was written to the shared alloc directory.
+	outputFile := filepath.Join(task.TaskDir().SharedAllocDir, file)
+	act, err := ioutil.ReadFile(outputFile)
+	if err != nil {
+		t.Fatalf("Couldn't read expected output: %v", err)
+	}
+
+	if !reflect.DeepEqual(act, exp) {
+		t.Fatalf("Command outputted %v; want %v", act, exp)
 	}
 }
