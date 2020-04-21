@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/nomad/client/taskenv"
 	"github.com/hashicorp/nomad/drivers/shared/eventer"
 	"github.com/hashicorp/nomad/helper"
+	"github.com/hashicorp/nomad/helper/pluginutils/loader"
 	nstructs "github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/base"
 	"github.com/hashicorp/nomad/plugins/drivers"
@@ -38,6 +39,11 @@ const (
 var (
 	// Version is set at compile time.
 	Version = "0.0.0"
+
+	PluginID = loader.PluginID{
+		Name:       pluginName,
+		PluginType: base.PluginTypeDriver,
+	}
 
 	pluginInfo = &base.PluginInfoResponse{
 		Type:              base.PluginTypeDriver,

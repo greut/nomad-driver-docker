@@ -22,11 +22,10 @@ import (
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers"
 	//"github.com/stretchr/testify/assert"
-	//"github.com/hashicorp/go-hclog"
+	"github.com/hashicorp/go-hclog"
 	"github.com/hashicorp/nomad/helper/pluginutils/loader"
 	"github.com/hashicorp/nomad/helper/testlog"
 	"github.com/hashicorp/nomad/helper/uuid"
-	"github.com/hashicorp/nomad/nomad/structs/config"
 	"github.com/hashicorp/nomad/plugins/base"
 	dtestutil "github.com/hashicorp/nomad/plugins/drivers/testutils"
 	"github.com/stretchr/testify/require"
@@ -87,6 +86,7 @@ func dockerTask(t *testing.T) (*drivers.TaskConfig, *TaskConfig, []int) {
 // A driver plugin interface and cleanup function is returned
 func dockerDriverHarness(t *testing.T, cfg map[string]interface{}) *dtestutil.DriverHarness {
 	logger := testlog.HCLogger(t)
+	harness := dtestutil.NewDriverHarness(t, NewDriver(logger))
 	if cfg == nil {
 		cfg = map[string]interface{}{
 			"gc": map[string]interface{}{
@@ -94,15 +94,17 @@ func dockerDriverHarness(t *testing.T, cfg map[string]interface{}) *dtestutil.Dr
 			},
 		}
 	}
+
 	plugLoader, err := loader.NewPluginLoader(&loader.PluginLoaderConfig{
 		Logger:            logger,
-		PluginDir:         "../plugins",
+		PluginDir:         "./plugins",
 		SupportedVersions: loader.AgentSupportedApiVersions,
-		Configs: []*config.PluginConfig{
-			{
-				Name:   "docker",
-				Args:   []string{},
-				Config: map[string]interface{}{},
+		InternalPlugins: map[loader.PluginID]*loader.InternalPluginConfig{
+			PluginID: {
+				Config: cfg,
+				Factory: func(hclog.Logger) interface{} {
+					return harness
+				},
 			},
 		},
 	})
@@ -110,8 +112,43 @@ func dockerDriverHarness(t *testing.T, cfg map[string]interface{}) *dtestutil.Dr
 	require.NoError(t, err)
 	instance, err := plugLoader.Dispense(pluginName, base.PluginTypeDriver, nil, logger)
 	require.NoError(t, err)
+	driver, ok := instance.Plugin().(*dtestutil.DriverHarness)
+	if !ok {
+		t.Fatal("plugin instance is not a driver... wat?")
+	}
 
-	return dtestutil.NewDriverHarness(t, instance.Plugin().(drivers.DriverPlugin))
+	return driver
+}
+
+// dockerSetup does all of the basic setup you need to get a running docker
+// process up and running for testing. Use like:
+//
+//	task := taskTemplate()
+//	// do custom task configuration
+//	client, handle, cleanup := dockerSetup(t, task)
+//	defer cleanup()
+//	// do test stuff
+//
+// If there is a problem during setup this function will abort or skip the test
+// and indicate the reason.
+func dockerSetup(t *testing.T, task *drivers.TaskConfig) (*docker.Client, *dtestutil.DriverHarness, *taskHandle, func()) {
+	client := newTestDockerClient(t)
+	driver := dockerDriverHarness(t, nil)
+	cleanup := driver.MkAllocDir(task, true)
+
+	copyImage(t, task.TaskDir(), "busybox.tar")
+	_, _, err := driver.StartTask(task)
+	require.NoError(t, err)
+
+	dockerDriver, ok := driver.Impl().(*Driver)
+	require.True(t, ok)
+	handle, ok := dockerDriver.tasks.Get(task.ID)
+	require.True(t, ok)
+
+	return client, driver, handle, func() {
+		driver.DestroyTask(task.ID, true)
+		cleanup()
+	}
 }
 
 func newTestDockerClient(t *testing.T) *docker.Client {
@@ -670,4 +707,34 @@ func TestDockerDriver_StartNVersions(t *testing.T) {
 	}
 
 	t.Log("Test complete!")
+}
+
+func TestDockerDriver_Labels(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+
+	cfg.Labels = map[string]string{
+		"label1": "value1",
+		"label2": "value2",
+	}
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	client, d, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+	require.NoError(t, d.WaitUntilStarted(task.ID, 5*time.Second))
+
+	container, err := client.ContainerInspect(context.TODO(), handle.containerID)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	// expect to see 1 additional standard labels
+	require.Equal(t, len(cfg.Labels)+1, len(container.Config.Labels))
+	for k, v := range cfg.Labels {
+		require.Equal(t, v, container.Config.Labels[k])
+	}
 }
