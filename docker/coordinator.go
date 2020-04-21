@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
 	"strings"
 	"sync"
 	"time"
@@ -139,7 +138,7 @@ func (c *coordinator) pullImageImpl(ctx context.Context, image string, future *p
 
 	for {
 		l, _, err := reader.ReadLine()
-		if err != nil || (len(l) == 0 && err == io.EOF) {
+		if err != nil && len(l) == 0 {
 			if line.Status != "" {
 				future.set("", fmt.Errorf("failed to pull image: %s. %w", line.Status, err))
 			} else {

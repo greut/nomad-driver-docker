@@ -1,9 +1,10 @@
 package docker
 
 import (
+	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
-	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -434,14 +435,42 @@ func (d *Driver) loadImage(config *TaskConfig, task *drivers.TaskConfig) (string
 	}
 	defer r.Body.Close()
 
-	b, err := ioutil.ReadAll(r.Body)
-	if err != nil {
-		return "", fmt.Errorf("unable to read response")
+	if !r.JSON {
+		return "", fmt.Errorf("a JSON body was expected")
 	}
 
-	d.logger.Debug("loaded archive", "body", string(b))
+	reader := bufio.NewReader(r.Body)
 
-	return "", fmt.Errorf("not implemented error")
+	line := struct {
+		Stream string `json:"stream"`
+	}{}
+	image := ""
+
+	for {
+		l, _, err := reader.ReadLine()
+		if err != nil && len(l) == 0 {
+			if line.Stream != "" {
+				return "", fmt.Errorf("failed to load image: %s. %w", line.Stream, err)
+			}
+			return "", fmt.Errorf("failed to read image load operation. %w", err)
+		}
+
+		d.logger.Debug("pull event", "line", string(l))
+
+		if err := json.Unmarshal(l, &line); err != nil {
+			return "", fmt.Errorf("failed to unmarshall JSON message, %q. %w", string(l), err)
+		}
+
+		if strings.HasPrefix(line.Stream, "Loaded image: ") {
+			image = line.Stream[14:]
+			break
+		}
+	}
+
+	d.logger.Debug("loaded archive", "image", image)
+
+	// XXX Shouldn't this return the SHA256?
+	return image, nil
 }
 
 func (d *Driver) pullImage(config *TaskConfig, task *drivers.TaskConfig) (string, error) {
