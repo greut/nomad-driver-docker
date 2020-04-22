@@ -760,3 +760,27 @@ func TestDockerDriver_ForcePull(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 }
+
+func TestDockerDriver_ForcePull_RepoDigest(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	cfg.LoadImage = ""
+	cfg.Image = "library/busybox@sha256:58ac43b2cc92c687a32c8be6278e50a063579655fe3090125dcb2af0ff9e1a64"
+	localDigest := "sha256:8ac48589692a53a9b8c2d1ceaa6b402665aa7fe667ba51ccc03002300856d8c7"
+	cfg.ForcePull = true
+	cfg.Command = busyboxLongRunningCmd[0]
+	cfg.Args = busyboxLongRunningCmd[1:]
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	client, d, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+	require.NoError(t, d.WaitUntilStarted(task.ID, 5*time.Second))
+
+	container, err := client.ContainerInspect(context.TODO(), handle.containerID)
+	require.NoError(t, err)
+	require.Equal(t, localDigest, container.Image)
+}
