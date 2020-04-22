@@ -321,12 +321,18 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	task.Env["PATH"] = "/bin:/sbin:/usr/bin:/usr/local/bin"
 	env := task.EnvList()
 
+	labels := make(map[string]string, len(config.Labels)+1)
+	for k, v := range config.Labels {
+		labels[k] = v
+	}
+	labels[dockerLabelAllocID] = task.AllocID
+
 	_, err = client.ContainerCreate(
 		d.ctx,
 		&container.Config{
 			Image:  config.Image,
 			Cmd:    cmd,
-			Labels: config.Labels,
+			Labels: labels,
 			Env:    env,
 		},
 		&container.HostConfig{
@@ -468,7 +474,7 @@ func (d *Driver) loadImage(config *TaskConfig, task *drivers.TaskConfig) (string
 		}
 
 		if strings.HasPrefix(line.Stream, "Loaded image: ") {
-			image = line.Stream[14:]
+			image = strings.TrimSpace(line.Stream[13:])
 			break
 		}
 	}
