@@ -439,6 +439,8 @@ func TestDockerDriver_Start_Wait_AllocDir(t *testing.T) {
 	if !tu.IsCI() {
 		t.Parallel()
 	}
+	tu.DockerCompatible(t)
+
 	// This test requires that the alloc dir be mounted into docker as a volume.
 	// Because this cannot happen when docker is run remotely, e.g. when running
 	// docker in a VM, we skip this when we detect Docker is being run remotely.
@@ -502,6 +504,7 @@ func TestDockerDriver_Start_Kill_Wait(t *testing.T) {
 	if !tu.IsCI() {
 		t.Parallel()
 	}
+	tu.DockerCompatible(t)
 
 	taskCfg := newTaskConfig("", busyboxLongRunningCmd)
 	task := &drivers.TaskConfig{
@@ -546,6 +549,7 @@ func TestDockerDriver_Start_KillTimeout(t *testing.T) {
 	if !tu.IsCI() {
 		t.Parallel()
 	}
+	tu.DockerCompatible(t)
 
 	timeout := 2 * time.Second
 	taskCfg := newTaskConfig("", []string{"sleep", "10"})
@@ -593,6 +597,7 @@ func TestDockerDriver_StartN(t *testing.T) {
 	if !tu.IsCI() {
 		t.Parallel()
 	}
+	tu.DockerCompatible(t)
 
 	require := require.New(t)
 
@@ -645,6 +650,7 @@ func TestDockerDriver_StartNVersions(t *testing.T) {
 	if !tu.IsCI() {
 		t.Parallel()
 	}
+	tu.DockerCompatible(t)
 
 	require := require.New(t)
 
@@ -713,6 +719,7 @@ func TestDockerDriver_Labels(t *testing.T) {
 	if !tu.IsCI() {
 		t.Parallel()
 	}
+	tu.DockerCompatible(t)
 
 	task, cfg, ports := dockerTask(t)
 	defer freeport.Return(ports)
@@ -743,6 +750,7 @@ func TestDockerDriver_ForcePull(t *testing.T) {
 	if !tu.IsCI() {
 		t.Parallel()
 	}
+	tu.DockerCompatible(t)
 
 	task, cfg, ports := dockerTask(t)
 	defer freeport.Return(ports)
@@ -765,6 +773,7 @@ func TestDockerDriver_ForcePull_RepoDigest(t *testing.T) {
 	if !tu.IsCI() {
 		t.Parallel()
 	}
+	tu.DockerCompatible(t)
 
 	task, cfg, ports := dockerTask(t)
 	defer freeport.Return(ports)
