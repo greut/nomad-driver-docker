@@ -738,3 +738,25 @@ func TestDockerDriver_Labels(t *testing.T) {
 		require.Equal(t, v, container.Config.Labels[k])
 	}
 }
+
+func TestDockerDriver_ForcePull(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+
+	cfg.ForcePull = true
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	client, d, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+
+	require.NoError(t, d.WaitUntilStarted(task.ID, 5*time.Second))
+
+	_, err := client.ContainerInspect(context.TODO(), handle.containerID)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+}

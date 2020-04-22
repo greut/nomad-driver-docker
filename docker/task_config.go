@@ -7,10 +7,12 @@ import (
 
 var (
 	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"image":   hclspec.NewAttr("image", "string", true),
-		"command": hclspec.NewAttr("command", "string", true),
-		"args":    hclspec.NewAttr("args", "list(string)", true),
-		"labels":  hclspec.NewAttr("labels", "list(map(string))", false),
+		"image":      hclspec.NewAttr("image", "string", true),
+		"command":    hclspec.NewAttr("command", "string", true),
+		"args":       hclspec.NewAttr("args", "list(string)", true),
+		"force_pull": hclspec.NewAttr("force_pull", "bool", false),
+		"labels":     hclspec.NewAttr("labels", "list(map(string))", false),
+		"load":       hclspec.NewAttr("load", "string", false),
 	})
 )
 
@@ -21,4 +23,5 @@ type TaskConfig struct {
 	Labels    hclutils.MapStrStr `codec:"labels"`
 	PortMap   hclutils.MapStrInt `codec:"port_map"`
 	LoadImage string             `codec:"load"`
+	ForcePull bool               `codec:"force_pull"`
 }
