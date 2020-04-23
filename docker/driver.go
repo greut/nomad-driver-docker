@@ -336,7 +336,8 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 			Env:    env,
 		},
 		&container.HostConfig{
-			Binds: binds,
+			Binds:       binds,
+			SecurityOpt: config.SecurityOpt,
 		},
 		&network.NetworkingConfig{},
 		containerName,

@@ -793,3 +793,27 @@ func TestDockerDriver_ForcePull_RepoDigest(t *testing.T) {
 	require.NoError(t, err)
 	require.Equal(t, localDigest, container.Image)
 }
+
+func TestDockerDriver_SecurityOptUnconfined(t *testing.T) {
+
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	tu.DockerCompatible(t)
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	cfg.SecurityOpt = []string{"seccomp=unconfined"}
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	client, d, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+	require.NoError(t, d.WaitUntilStarted(task.ID, 5*time.Second))
+
+	container, err := client.ContainerInspect(context.TODO(), handle.containerID)
+	if err != nil {
+		t.Fatalf("err: %v", err)
+	}
+
+	require.Exactly(t, cfg.SecurityOpt, container.HostConfig.SecurityOpt)
+}
