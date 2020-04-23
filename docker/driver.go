@@ -2,9 +2,11 @@ package docker
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io/ioutil"
 	"os"
 	"path/filepath"
 	"strings"
@@ -327,6 +329,11 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	}
 	labels[dockerLabelAllocID] = task.AllocID
 
+	securityOpt, err := parseSecurityOpts(config.SecurityOpt)
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to parse security_opt configuration: %v", err)
+	}
+
 	_, err = client.ContainerCreate(
 		d.ctx,
 		&container.Config{
@@ -337,7 +344,7 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 		},
 		&container.HostConfig{
 			Binds:       binds,
-			SecurityOpt: config.SecurityOpt,
+			SecurityOpt: securityOpt,
 		},
 		&network.NetworkingConfig{},
 		containerName,
@@ -778,4 +785,33 @@ func (d *Driver) handleWait(ctx context.Context, ch chan *drivers.ExitResult, h 
 			Err: ctx.Err(),
 		}
 	}
+}
+
+// takes a local seccomp daemon, reads the file contents for sending to the daemon
+// this code modified slightly from the docker CLI code
+// https://github.com/docker/cli/blob/8ef8547eb6934b28497d309d21e280bcd25145f5/cli/command/container/opts.go#L840
+func parseSecurityOpts(securityOpts []string) ([]string, error) {
+	for key, opt := range securityOpts {
+		con := strings.SplitN(opt, "=", 2)
+		if len(con) == 1 && con[0] != "no-new-privileges" {
+			if strings.Contains(opt, ":") {
+				con = strings.SplitN(opt, ":", 2)
+			} else {
+				return securityOpts, fmt.Errorf("invalid security_opt: %q", opt)
+			}
+		}
+		if con[0] == "seccomp" && con[1] != "unconfined" {
+			f, err := ioutil.ReadFile(con[1])
+			if err != nil {
+				return securityOpts, fmt.Errorf("opening seccomp profile (%s) failed: %v", con[1], err)
+			}
+			b := bytes.NewBuffer(nil)
+			if err := json.Compact(b, f); err != nil {
+				return securityOpts, fmt.Errorf("compacting json for seccomp profile (%s) failed: %v", con[1], err)
+			}
+			securityOpts[key] = fmt.Sprintf("seccomp=%s", b.Bytes())
+		}
+	}
+
+	return securityOpts, nil
 }

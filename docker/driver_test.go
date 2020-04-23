@@ -817,3 +817,24 @@ func TestDockerDriver_SecurityOptUnconfined(t *testing.T) {
 
 	require.Exactly(t, cfg.SecurityOpt, container.HostConfig.SecurityOpt)
 }
+
+func TestDockerDriver_SecurityOptFromFile(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	tu.DockerCompatible(t)
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	cfg.SecurityOpt = []string{"seccomp=../test-resources/seccomp.json"}
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	client, d, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+	require.NoError(t, d.WaitUntilStarted(task.ID, 5*time.Second))
+
+	container, err := client.ContainerInspect(context.TODO(), handle.containerID)
+	require.NoError(t, err)
+
+	require.Contains(t, container.HostConfig.SecurityOpt[0], "reboot")
+}
