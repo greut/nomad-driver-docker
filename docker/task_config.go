@@ -14,6 +14,7 @@ var (
 		"labels":       hclspec.NewAttr("labels", "list(map(string))", false),
 		"load":         hclspec.NewAttr("load", "string", false),
 		"security_opt": hclspec.NewAttr("security_opt", "list(string)", false),
+		"storage_opt":  hclspec.NewBlockAttrs("storage_opt", "string", false),
 	})
 )
 
@@ -26,4 +27,5 @@ type TaskConfig struct {
 	LoadImage   string             `codec:"load"`
 	ForcePull   bool               `codec:"force_pull"`
 	SecurityOpt []string           `codec:"security_opt"`
+	StorageOpt  map[string]string  `codec:"storage_opt"`
 }

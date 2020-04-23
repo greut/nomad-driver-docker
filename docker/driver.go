@@ -258,26 +258,13 @@ func (d *Driver) RecoverTask(*drivers.TaskHandle) error {
 	return fmt.Errorf("4 not implemented error")
 }
 
-func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *drivers.DriverNetwork, error) {
-	if _, ok := d.tasks.Get(task.ID); ok {
-		return nil, nil, fmt.Errorf("task with ID %q already started", task.ID)
-	}
-
-	config := new(TaskConfig)
-	if err := task.DecodeDriverConfig(&config); err != nil {
-		return nil, nil, fmt.Errorf("failed to decode driver config. %w", err)
-	}
-
+func (d *Driver) createContainerConfig(config *TaskConfig, task *drivers.TaskConfig) (*container.Config, error) {
 	if config.Image == "" {
-		return nil, nil, fmt.Errorf("image name required for docker driver")
-	}
-
-	client, waitClient, err := d.clients()
-	if err != nil {
-		return nil, nil, fmt.Errorf("failed to obtain a docker client. %w", err)
+		return nil, fmt.Errorf("image name required for docker driver")
 	}
 
 	var imageID string
+	var err error
 	if config.LoadImage != "" {
 		imageID, err = d.loadImage(config, task)
 	} else {
@@ -285,22 +272,8 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	}
 
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-
-	d.logger.Debug("image pulled", "image_id", imageID)
-
-	// Create container
-
-	containerName := fmt.Sprintf(
-		"%s-%s", strings.Replace(task.Name, "/", "_", -1),
-		task.AllocID,
-	)
-
-	containers, err := client.ContainerList(d.ctx, types.ContainerListOptions{
-		Limit:   1,
-		Filters: filters.NewArgs(filters.Arg("name", containerName)),
-	})
 
 	// Create a new container
 	// XXX command + args is a legacy from the Docker plugin (shrugs)
@@ -311,13 +284,7 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	if len(config.Args) != 0 {
 		cmd = append(cmd, config.Args...)
 	}
-	d.logger.Debug("container creation", "image", config.Image, "command", cmd)
-
-	// Mounting volumes
-	allocDirBind := fmt.Sprintf("%s:%s", task.TaskDir().SharedAllocDir, task.Env[taskenv.AllocDir])
-	taskLocalBind := fmt.Sprintf("%s:%s", task.TaskDir().LocalDir, task.Env[taskenv.TaskLocalDir])
-	secretDirBind := fmt.Sprintf("%s:%s", task.TaskDir().SecretsDir, task.Env[taskenv.SecretsDir])
-	binds := []string{allocDirBind, taskLocalBind, secretDirBind}
+	d.logger.Debug("container creation", "image", config.Image, "imageID", imageID, "command", cmd)
 
 	// XXX figure out how to get ENV from the image.
 	task.Env["PATH"] = "/bin:/sbin:/usr/bin:/usr/local/bin"
@@ -329,24 +296,76 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	}
 	labels[dockerLabelAllocID] = task.AllocID
 
+	containerConfig := &container.Config{
+		Image:  imageID,
+		Cmd:    cmd,
+		Labels: labels,
+		Env:    env,
+	}
+
+	return containerConfig, nil
+}
+
+func (d *Driver) createHostConfig(config *TaskConfig, task *drivers.TaskConfig) (*container.HostConfig, error) {
+	// Mounting volumes
+	allocDirBind := fmt.Sprintf("%s:%s", task.TaskDir().SharedAllocDir, task.Env[taskenv.AllocDir])
+	taskLocalBind := fmt.Sprintf("%s:%s", task.TaskDir().LocalDir, task.Env[taskenv.TaskLocalDir])
+	secretDirBind := fmt.Sprintf("%s:%s", task.TaskDir().SecretsDir, task.Env[taskenv.SecretsDir])
+	binds := []string{allocDirBind, taskLocalBind, secretDirBind}
+
 	securityOpt, err := parseSecurityOpts(config.SecurityOpt)
 	if err != nil {
-		return nil, nil, fmt.Errorf("failed to parse security_opt configuration: %v", err)
+		return nil, fmt.Errorf("failed to parse security_opt configuration: %v", err)
 	}
+
+	hostConfig := &container.HostConfig{
+		Binds:       binds,
+		SecurityOpt: securityOpt,
+		StorageOpt:  config.StorageOpt,
+	}
+
+	return hostConfig, nil
+}
+
+func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *drivers.DriverNetwork, error) {
+	if _, ok := d.tasks.Get(task.ID); ok {
+		return nil, nil, fmt.Errorf("task with ID %q already started", task.ID)
+	}
+
+	config := new(TaskConfig)
+	if err := task.DecodeDriverConfig(&config); err != nil {
+		return nil, nil, fmt.Errorf("failed to decode driver config. %w", err)
+	}
+
+	client, waitClient, err := d.clients()
+	if err != nil {
+		return nil, nil, fmt.Errorf("failed to obtain a docker client. %w", err)
+	}
+
+	// Create container
+
+	containerConfig, err := d.createContainerConfig(config, task)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	hostConfig, err := d.createHostConfig(config, task)
+	if err != nil {
+		return nil, nil, err
+	}
+
+	containerName := fmt.Sprintf(
+		"%s-%s", strings.Replace(task.Name, "/", "_", -1),
+		task.AllocID,
+	)
+
+	networkingConfig := &network.NetworkingConfig{}
 
 	_, err = client.ContainerCreate(
 		d.ctx,
-		&container.Config{
-			Image:  config.Image,
-			Cmd:    cmd,
-			Labels: labels,
-			Env:    env,
-		},
-		&container.HostConfig{
-			Binds:       binds,
-			SecurityOpt: securityOpt,
-		},
-		&network.NetworkingConfig{},
+		containerConfig,
+		hostConfig,
+		networkingConfig,
 		containerName,
 	)
 
@@ -356,7 +375,7 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 
 	// Search for the created container
 	// XXX does it need a mutex?
-	containers, err = client.ContainerList(d.ctx, types.ContainerListOptions{
+	containers, err := client.ContainerList(d.ctx, types.ContainerListOptions{
 		Limit:   1,
 		Filters: filters.NewArgs(filters.Arg("name", containerName)),
 	})

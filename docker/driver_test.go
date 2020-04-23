@@ -838,3 +838,22 @@ func TestDockerDriver_SecurityOptFromFile(t *testing.T) {
 
 	require.Contains(t, container.HostConfig.SecurityOpt[0], "reboot")
 }
+
+func TestDockerDriver_CreateContainerConfig(t *testing.T) {
+	t.Parallel()
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	opt := map[string]string{"size": "120G"}
+
+	cfg.StorageOpt = opt
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	dh := dockerDriverHarness(t, nil)
+	driver := dh.Impl().(*Driver)
+
+	c, err := driver.createHostConfig(cfg, task)
+	require.NoError(t, err)
+
+	require.EqualValues(t, opt, c.StorageOpt)
+}
