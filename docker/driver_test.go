@@ -875,3 +875,37 @@ func TestDockerDriver_CreateContainerConfig_User(t *testing.T) {
 
 	require.Equal(t, task.User, c.Config.User)
 }
+
+func TestDockerDriver_CreateContainerConfig_Labels(t *testing.T) {
+	t.Parallel()
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	task.AllocID = uuid.Generate()
+	task.JobName = "redis-demo-job"
+
+	cfg.Labels = map[string]string{
+		"user_label": "user_value",
+
+		// com.hashicorp.nomad. labels are reserved and
+		// cannot be overridden
+		"com.hashicorp.nomad.alloc_id": "bad_value",
+	}
+
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	dh := dockerDriverHarness(t, nil)
+	driver := dh.Impl().(*Driver)
+
+	c, err := driver.createContainerCreateConfig(task, cfg, "org/repo:0.1")
+	require.NoError(t, err)
+
+	expectedLabels := map[string]string{
+		// user provided labels
+		"user_label": "user_value",
+		// default labels
+		"com.hashicorp.nomad.alloc_id": task.AllocID,
+	}
+
+	require.Equal(t, expectedLabels, c.Config.Labels)
+}
