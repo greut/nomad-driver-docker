@@ -258,23 +258,7 @@ func (d *Driver) RecoverTask(*drivers.TaskHandle) error {
 	return fmt.Errorf("4 not implemented error")
 }
 
-func (d *Driver) createContainerConfig(config *TaskConfig, task *drivers.TaskConfig) (*container.Config, error) {
-	if config.Image == "" {
-		return nil, fmt.Errorf("image name required for docker driver")
-	}
-
-	var imageID string
-	var err error
-	if config.LoadImage != "" {
-		imageID, err = d.loadImage(config, task)
-	} else {
-		imageID, err = d.pullImage(config, task)
-	}
-
-	if err != nil {
-		return nil, err
-	}
-
+func (d *Driver) createContainerCreateConfig(task *drivers.TaskConfig, config *TaskConfig, imageID string) (*types.ContainerCreateConfig, error) {
 	// Create a new container
 	// XXX command + args is a legacy from the Docker plugin (shrugs)
 	cmd := make([]string, 0, len(config.Args)+1)
@@ -296,17 +280,6 @@ func (d *Driver) createContainerConfig(config *TaskConfig, task *drivers.TaskCon
 	}
 	labels[dockerLabelAllocID] = task.AllocID
 
-	containerConfig := &container.Config{
-		Image:  imageID,
-		Cmd:    cmd,
-		Labels: labels,
-		Env:    env,
-	}
-
-	return containerConfig, nil
-}
-
-func (d *Driver) createHostConfig(config *TaskConfig, task *drivers.TaskConfig) (*container.HostConfig, error) {
 	// Mounting volumes
 	allocDirBind := fmt.Sprintf("%s:%s", task.TaskDir().SharedAllocDir, task.Env[taskenv.AllocDir])
 	taskLocalBind := fmt.Sprintf("%s:%s", task.TaskDir().LocalDir, task.Env[taskenv.TaskLocalDir])
@@ -318,13 +291,28 @@ func (d *Driver) createHostConfig(config *TaskConfig, task *drivers.TaskConfig) 
 		return nil, fmt.Errorf("failed to parse security_opt configuration: %v", err)
 	}
 
-	hostConfig := &container.HostConfig{
-		Binds:       binds,
-		SecurityOpt: securityOpt,
-		StorageOpt:  config.StorageOpt,
-	}
+	containerName := fmt.Sprintf(
+		"%s-%s", strings.Replace(task.Name, "/", "_", -1),
+		task.AllocID,
+	)
 
-	return hostConfig, nil
+	return &types.ContainerCreateConfig{
+		Name: containerName,
+		Config: &container.Config{
+			Cmd:    cmd,
+			Env:    env,
+			Image:  imageID,
+			Labels: labels,
+			User:   task.User,
+		},
+		HostConfig: &container.HostConfig{
+			Binds:       binds,
+			SecurityOpt: securityOpt,
+			StorageOpt:  config.StorageOpt,
+		},
+		NetworkingConfig: &network.NetworkingConfig{},
+		AdjustCPUShares:  false,
+	}, nil
 }
 
 func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *drivers.DriverNetwork, error) {
@@ -342,31 +330,36 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 		return nil, nil, fmt.Errorf("failed to obtain a docker client. %w", err)
 	}
 
+	// Pull image
+
+	if config.Image == "" {
+		return nil, nil, fmt.Errorf("image name required for docker driver")
+	}
+
+	var imageID string
+	if config.LoadImage != "" {
+		imageID, err = d.loadImage(config, task)
+	} else {
+		imageID, err = d.pullImage(config, task)
+	}
+
+	if err != nil {
+		return nil, nil, err
+	}
+
 	// Create container
 
-	containerConfig, err := d.createContainerConfig(config, task)
+	containerCreateConfig, err := d.createContainerCreateConfig(task, config, imageID)
 	if err != nil {
 		return nil, nil, err
 	}
-
-	hostConfig, err := d.createHostConfig(config, task)
-	if err != nil {
-		return nil, nil, err
-	}
-
-	containerName := fmt.Sprintf(
-		"%s-%s", strings.Replace(task.Name, "/", "_", -1),
-		task.AllocID,
-	)
-
-	networkingConfig := &network.NetworkingConfig{}
 
 	_, err = client.ContainerCreate(
 		d.ctx,
-		containerConfig,
-		hostConfig,
-		networkingConfig,
-		containerName,
+		containerCreateConfig.Config,
+		containerCreateConfig.HostConfig,
+		containerCreateConfig.NetworkingConfig,
+		containerCreateConfig.Name,
 	)
 
 	if err != nil {
@@ -377,7 +370,7 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 	// XXX does it need a mutex?
 	containers, err := client.ContainerList(d.ctx, types.ContainerListOptions{
 		Limit:   1,
-		Filters: filters.NewArgs(filters.Arg("name", containerName)),
+		Filters: filters.NewArgs(filters.Arg("name", containerCreateConfig.Name)),
 	})
 
 	if len(containers) == 0 {

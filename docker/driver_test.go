@@ -852,8 +852,26 @@ func TestDockerDriver_CreateContainerConfig(t *testing.T) {
 	dh := dockerDriverHarness(t, nil)
 	driver := dh.Impl().(*Driver)
 
-	c, err := driver.createHostConfig(cfg, task)
+	c, err := driver.createContainerCreateConfig(task, cfg, "org/repo:0.1")
 	require.NoError(t, err)
 
-	require.EqualValues(t, opt, c.StorageOpt)
+	require.EqualValues(t, opt, c.HostConfig.StorageOpt)
+}
+
+func TestDockerDriver_CreateContainerConfig_User(t *testing.T) {
+	t.Parallel()
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	task.User = "random-user-1"
+
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	dh := dockerDriverHarness(t, nil)
+	driver := dh.Impl().(*Driver)
+
+	c, err := driver.createContainerCreateConfig(task, cfg, "org/repo:0.1")
+	require.NoError(t, err)
+
+	require.Equal(t, task.User, c.Config.User)
 }
