@@ -909,3 +909,82 @@ func TestDockerDriver_CreateContainerConfig_Labels(t *testing.T) {
 
 	require.Equal(t, expectedLabels, c.Config.Labels)
 }
+
+func TestDockerDriver_CreateContainerConfig_Logging(t *testing.T) {
+	t.Parallel()
+
+	cases := []struct {
+		name           string
+		loggingConfig  DockerLogging
+		expectedConfig DockerLogging
+	}{
+		{
+			"simple type",
+			DockerLogging{Type: "fluentd"},
+			DockerLogging{
+				Type:   "fluentd",
+				Config: map[string]string{},
+			},
+		},
+		{
+			"simple driver",
+			DockerLogging{Driver: "fluentd"},
+			DockerLogging{
+				Type:   "fluentd",
+				Config: map[string]string{},
+			},
+		},
+		{
+			"type takes precedence",
+			DockerLogging{
+				Type:   "json-file",
+				Driver: "fluentd",
+			},
+			DockerLogging{
+				Type:   "json-file",
+				Config: map[string]string{},
+			},
+		},
+		{
+			"user config takes precedence, even if no type provided",
+			DockerLogging{
+				Type:   "",
+				Config: map[string]string{"max-file": "3", "max-size": "10m"},
+			},
+			DockerLogging{
+				Type:   "",
+				Config: map[string]string{"max-file": "3", "max-size": "10m"},
+			},
+		},
+		{
+			"defaults to json-file w/ log rotation",
+			DockerLogging{
+				Type: "",
+			},
+			DockerLogging{
+				Type:   "json-file",
+				Config: map[string]string{"max-file": "2", "max-size": "2m"},
+			},
+		},
+	}
+
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			task, cfg, ports := dockerTask(t)
+			defer freeport.Return(ports)
+
+			cfg.Logging = c.loggingConfig
+			require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+			dh := dockerDriverHarness(t, nil)
+			driver := dh.Impl().(*Driver)
+
+			cc, err := driver.createContainerCreateConfig(task, cfg, "org/repo:0.1")
+			require.NoError(t, err)
+
+			require.Equal(t, c.expectedConfig.Type, cc.HostConfig.LogConfig.Type)
+			require.Equal(t, c.expectedConfig.Config["max-file"], cc.HostConfig.LogConfig.Config["max-file"])
+			require.Equal(t, c.expectedConfig.Config["max-size"], cc.HostConfig.LogConfig.Config["max-size"])
+		})
+	}
+}

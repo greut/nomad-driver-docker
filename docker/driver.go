@@ -296,6 +296,25 @@ func (d *Driver) createContainerCreateConfig(task *drivers.TaskConfig, config *T
 		task.AllocID,
 	)
 
+	loggingDriver := config.Logging.Type
+	if loggingDriver == "" {
+		loggingDriver = config.Logging.Driver
+	}
+
+	logConfig := container.LogConfig{
+		Type:   loggingDriver,
+		Config: config.Logging.Config,
+	}
+
+	if logConfig.Type == "" && logConfig.Config == nil {
+		d.logger.Trace("no docker log driver provided, defaulting to json-file")
+		logConfig.Type = "json-file"
+		logConfig.Config = map[string]string{
+			"max-file": "2",
+			"max-size": "2m",
+		}
+	}
+
 	return &types.ContainerCreateConfig{
 		Name: containerName,
 		Config: &container.Config{
@@ -309,6 +328,7 @@ func (d *Driver) createContainerCreateConfig(task *drivers.TaskConfig, config *T
 			Binds:       binds,
 			SecurityOpt: securityOpt,
 			StorageOpt:  config.StorageOpt,
+			LogConfig:   logConfig,
 		},
 		NetworkingConfig: &network.NetworkingConfig{},
 		AdjustCPUShares:  false,
