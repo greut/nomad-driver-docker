@@ -33,5 +33,9 @@ jobs:
             wget -O /tmp/golang.tar.gz https://dl.google.com/go/go${GOLANG_VERSION}.linux-amd64.tar.gz
             sudo tar -C /usr/local -xzf /tmp/golang.tar.gz
             rm -rf /tmp/golang.tar.gz
+      - run:
+          name: install gotestsum
+          command: |
+            go install gotest.tools/gotestsum
       - run: |
           make test
