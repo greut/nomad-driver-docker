@@ -3,7 +3,7 @@ module github.com/greut/nomad-driver-docker
 go 1.14
 
 // no-docker
-replace github.com/hashicorp/nomad => github.com/greut/nomad v0.10.3-0.20200419140307-b9aeaf947ba9
+replace github.com/hashicorp/nomad => github.com/greut/nomad v0.10.3-0.20200425071612-e406179f122a
 
 // https://github.com/moby/moby/releases/tag/v19.03.8
 replace github.com/docker/docker => github.com/moby/moby v17.12.0-ce-rc1.0.20200309214505-aa6a9891b09c+incompatible

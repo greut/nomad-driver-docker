@@ -130,7 +130,6 @@ func (c *coordinator) pullImageImpl(ctx context.Context, image string, future *p
 
 	reader := bufio.NewReader(closer)
 
-	sha256 := ""
 	line := struct {
 		Status string `json:"status"`
 		ID     string `json:"id,omitempty"`
@@ -155,14 +154,13 @@ func (c *coordinator) pullImageImpl(ctx context.Context, image string, future *p
 		}
 
 		if strings.HasPrefix(line.Status, "Digest: sha256:") {
-			sha256 = line.Status[15:]
 			break
 		}
 	}
 
-	c.logger.Debug("image pulled", "sha256", sha256)
+	c.logger.Debug("image pulled", "id", image)
 
-	future.set(sha256, nil)
+	future.set(image, nil)
 	return
 }
 
