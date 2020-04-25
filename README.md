@@ -13,7 +13,6 @@ The bundled docker provider is built against [fsouza/go-dockerclient](https://gi
 ### Non-goals
 
 - Windows support
-- GPU support
 
 ## Usage
 

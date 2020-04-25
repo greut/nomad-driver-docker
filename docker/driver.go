@@ -22,6 +22,7 @@ import (
 	"github.com/hashicorp/go-hclog"
 	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/client/taskenv"
+	"github.com/hashicorp/nomad/devices/gpu/nvidia"
 	"github.com/hashicorp/nomad/drivers/shared/eventer"
 	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/helper/pluginutils/loader"
@@ -146,6 +147,9 @@ type Driver struct {
 
 	// log will log to the Nomad agent
 	logger hclog.Logger
+
+	// gpuRuntime indicates nvidia-docker runtime availability
+	gpuRuntime bool
 
 	// tasks is the in memory datastore mapping taskIDs to taskHandles
 	tasks *taskStore
@@ -315,6 +319,14 @@ func (d *Driver) createContainerCreateConfig(task *drivers.TaskConfig, config *T
 		}
 	}
 
+	runtime := ""
+	if _, ok := task.DeviceEnv[nvidia.NvidiaVisibleDevices]; ok {
+		if !d.gpuRuntime {
+			return nil, fmt.Errorf("requested docker-runtime %q was not found", d.config.GPURuntimeName)
+		}
+		runtime = d.config.GPURuntimeName
+	}
+
 	return &types.ContainerCreateConfig{
 		Name: containerName,
 		Config: &container.Config{
@@ -329,6 +341,7 @@ func (d *Driver) createContainerCreateConfig(task *drivers.TaskConfig, config *T
 			SecurityOpt: securityOpt,
 			StorageOpt:  config.StorageOpt,
 			LogConfig:   logConfig,
+			Runtime:     runtime,
 		},
 		NetworkingConfig: &network.NetworkingConfig{},
 		AdjustCPUShares:  false,

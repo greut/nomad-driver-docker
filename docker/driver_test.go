@@ -18,6 +18,7 @@ import (
 	tu "github.com/greut/nomad-driver-docker/testutil"
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/client/taskenv"
+	"github.com/hashicorp/nomad/devices/gpu/nvidia"
 	"github.com/hashicorp/nomad/helper/freeport"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers"
@@ -985,6 +986,77 @@ func TestDockerDriver_CreateContainerConfig_Logging(t *testing.T) {
 			require.Equal(t, c.expectedConfig.Type, cc.HostConfig.LogConfig.Type)
 			require.Equal(t, c.expectedConfig.Config["max-file"], cc.HostConfig.LogConfig.Config["max-file"])
 			require.Equal(t, c.expectedConfig.Config["max-size"], cc.HostConfig.LogConfig.Config["max-size"])
+		})
+	}
+}
+
+func TestDockerDriver_CreateContainerConfig_Runtimes(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+
+	testCases := []struct {
+		description           string
+		gpuRuntimeSet         bool
+		expectToReturnError   bool
+		expectedRuntime       string
+		nvidiaDevicesProvided bool
+	}{
+		{
+			description:           "gpu devices are provided, docker driver was able to detect nvidia-runtime 1",
+			gpuRuntimeSet:         true,
+			expectToReturnError:   false,
+			expectedRuntime:       "nvidia",
+			nvidiaDevicesProvided: true,
+		},
+		{
+			description:           "gpu devices are provided, docker driver was able to detect nvidia-runtime 2",
+			gpuRuntimeSet:         true,
+			expectToReturnError:   false,
+			expectedRuntime:       "nvidia-runtime-modified-name",
+			nvidiaDevicesProvided: true,
+		},
+		{
+			description:           "no gpu devices provided - no runtime should be set",
+			gpuRuntimeSet:         true,
+			expectToReturnError:   false,
+			expectedRuntime:       "nvidia",
+			nvidiaDevicesProvided: false,
+		},
+		{
+			description:           "no gpuRuntime supported by docker driver",
+			gpuRuntimeSet:         false,
+			expectToReturnError:   true,
+			expectedRuntime:       "nvidia",
+			nvidiaDevicesProvided: true,
+		},
+	}
+	for _, testCase := range testCases {
+		t.Run(testCase.description, func(t *testing.T) {
+			task, cfg, ports := dockerTask(t)
+			defer freeport.Return(ports)
+
+			dh := dockerDriverHarness(t, nil)
+			driver := dh.Impl().(*Driver)
+
+			driver.gpuRuntime = testCase.gpuRuntimeSet
+			driver.config.GPURuntimeName = testCase.expectedRuntime
+			if testCase.nvidiaDevicesProvided {
+				task.DeviceEnv[nvidia.NvidiaVisibleDevices] = "GPU_UUID_1"
+			}
+
+			c, err := driver.createContainerCreateConfig(task, cfg, "org/repo:0.1")
+			if testCase.expectToReturnError {
+				require.NotNil(t, err)
+			} else {
+				require.NoError(t, err)
+				if testCase.nvidiaDevicesProvided {
+					require.Equal(t, testCase.expectedRuntime, c.HostConfig.Runtime)
+				} else {
+					// no nvidia devices provided -> no point to use nvidia runtime
+					require.Equal(t, "", c.HostConfig.Runtime)
+				}
+			}
 		})
 	}
 }

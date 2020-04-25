@@ -7,6 +7,7 @@ import (
 type DriverConfig struct {
 	Endpoint                    string        `codec:"endpoint"`
 	GC                          GCConfig      `codec:"gc"`
+	GPURuntimeName              string        `codec:"nvidia_runtime"`
 	PullActivityTimeout         string        `codec:""pull_activity_timeout`
 	pullActivityTimeoutDuration time.Duration `codec:"-"`
 }
