@@ -853,7 +853,7 @@ func TestDockerDriver_CreateContainerConfig(t *testing.T) {
 	dh := dockerDriverHarness(t, nil)
 	driver := dh.Impl().(*Driver)
 
-	c, err := driver.createContainerCreateConfig(task, cfg, "org/repo:0.1")
+	c, err := driver.containerCreateConfig(task, cfg, "org/repo:0.1")
 	require.NoError(t, err)
 
 	require.EqualValues(t, opt, c.HostConfig.StorageOpt)
@@ -871,7 +871,7 @@ func TestDockerDriver_CreateContainerConfig_User(t *testing.T) {
 	dh := dockerDriverHarness(t, nil)
 	driver := dh.Impl().(*Driver)
 
-	c, err := driver.createContainerCreateConfig(task, cfg, "org/repo:0.1")
+	c, err := driver.containerCreateConfig(task, cfg, "org/repo:0.1")
 	require.NoError(t, err)
 
 	require.Equal(t, task.User, c.Config.User)
@@ -898,7 +898,7 @@ func TestDockerDriver_CreateContainerConfig_Labels(t *testing.T) {
 	dh := dockerDriverHarness(t, nil)
 	driver := dh.Impl().(*Driver)
 
-	c, err := driver.createContainerCreateConfig(task, cfg, "org/repo:0.1")
+	c, err := driver.containerCreateConfig(task, cfg, "org/repo:0.1")
 	require.NoError(t, err)
 
 	expectedLabels := map[string]string{
@@ -980,7 +980,7 @@ func TestDockerDriver_CreateContainerConfig_Logging(t *testing.T) {
 			dh := dockerDriverHarness(t, nil)
 			driver := dh.Impl().(*Driver)
 
-			cc, err := driver.createContainerCreateConfig(task, cfg, "org/repo:0.1")
+			cc, err := driver.containerCreateConfig(task, cfg, "org/repo:0.1")
 			require.NoError(t, err)
 
 			require.Equal(t, c.expectedConfig.Type, cc.HostConfig.LogConfig.Type)
@@ -1045,7 +1045,7 @@ func TestDockerDriver_CreateContainerConfig_Runtimes(t *testing.T) {
 				task.DeviceEnv[nvidia.NvidiaVisibleDevices] = "GPU_UUID_1"
 			}
 
-			c, err := driver.createContainerCreateConfig(task, cfg, "org/repo:0.1")
+			c, err := driver.containerCreateConfig(task, cfg, "org/repo:0.1")
 			if testCase.expectToReturnError {
 				require.NotNil(t, err)
 			} else {
@@ -1057,6 +1057,115 @@ func TestDockerDriver_CreateContainerConfig_Runtimes(t *testing.T) {
 					require.Equal(t, "", c.HostConfig.Runtime)
 				}
 			}
+		})
+	}
+}
+
+func TestDockerDriver_Capabilities(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	tu.DockerCompatible(t)
+
+	testCases := []struct {
+		Name       string
+		CapAdd     []string
+		CapDrop    []string
+		Whitelist  string
+		StartError string
+	}{
+		{
+			Name:    "default-whitelist-add-allowed",
+			CapAdd:  []string{"fowner", "mknod"},
+			CapDrop: []string{"all"},
+		},
+		{
+			Name:       "default-whitelist-add-forbidden",
+			CapAdd:     []string{"net_admin"},
+			StartError: "net_admin",
+		},
+		{
+			Name:    "default-whitelist-drop-existing",
+			CapDrop: []string{"fowner", "mknod"},
+		},
+		{
+			Name:      "restrictive-whitelist-drop-all",
+			CapDrop:   []string{"all"},
+			Whitelist: "fowner,mknod",
+		},
+		{
+			Name:      "restrictive-whitelist-add-allowed",
+			CapAdd:    []string{"fowner", "mknod"},
+			CapDrop:   []string{"all"},
+			Whitelist: "fowner,mknod",
+		},
+		{
+			Name:       "restrictive-whitelist-add-forbidden",
+			CapAdd:     []string{"net_admin", "mknod"},
+			CapDrop:    []string{"all"},
+			Whitelist:  "fowner,mknod",
+			StartError: "net_admin",
+		},
+		{
+			Name:      "permissive-whitelist",
+			CapAdd:    []string{"net_admin", "mknod"},
+			Whitelist: "all",
+		},
+		{
+			Name:      "permissive-whitelist-add-all",
+			CapAdd:    []string{"all"},
+			Whitelist: "all",
+		},
+	}
+
+	for _, tc := range testCases {
+		t.Run(tc.Name, func(t *testing.T) {
+			client := newTestDockerClient(t)
+			task, cfg, ports := dockerTask(t)
+			defer freeport.Return(ports)
+
+			if len(tc.CapAdd) > 0 {
+				cfg.CapAdd = tc.CapAdd
+			}
+			if len(tc.CapDrop) > 0 {
+				cfg.CapDrop = tc.CapDrop
+			}
+			require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+			d := dockerDriverHarness(t, nil)
+			dockerDriver, ok := d.Impl().(*Driver)
+			require.True(t, ok)
+			if tc.Whitelist != "" {
+				dockerDriver.config.AllowCaps = strings.Split(tc.Whitelist, ",")
+			}
+
+			cleanup := d.MkAllocDir(task, true)
+			defer cleanup()
+			copyImage(t, task.TaskDir(), "busybox.tar")
+
+			_, _, err := d.StartTask(task)
+			defer d.DestroyTask(task.ID, true)
+			if err == nil && tc.StartError != "" {
+				t.Fatalf("Expected error in start: %v", tc.StartError)
+			} else if err != nil {
+				if tc.StartError == "" {
+					require.NoError(t, err)
+				} else {
+					require.Contains(t, err.Error(), tc.StartError)
+				}
+				return
+			}
+
+			handle, ok := dockerDriver.tasks.Get(task.ID)
+			require.True(t, ok)
+
+			require.NoError(t, d.WaitUntilStarted(task.ID, 5*time.Second))
+
+			container, err := client.ContainerInspect(context.TODO(), handle.containerID)
+			require.NoError(t, err)
+
+			require.Exactly(t, tc.CapAdd, container.HostConfig.CapAdd)
+			require.Exactly(t, tc.CapDrop, container.HostConfig.CapDrop)
 		})
 	}
 }

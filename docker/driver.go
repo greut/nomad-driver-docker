@@ -18,6 +18,7 @@ import (
 	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/client"
+	"github.com/docker/docker/oci/caps"
 	"github.com/hashicorp/consul-template/signals"
 	"github.com/hashicorp/go-hclog"
 	cstructs "github.com/hashicorp/nomad/client/structs"
@@ -262,7 +263,7 @@ func (d *Driver) RecoverTask(*drivers.TaskHandle) error {
 	return fmt.Errorf("4 not implemented error")
 }
 
-func (d *Driver) createContainerCreateConfig(task *drivers.TaskConfig, config *TaskConfig, imageID string) (*types.ContainerCreateConfig, error) {
+func (d *Driver) containerCreateConfig(task *drivers.TaskConfig, config *TaskConfig, imageID string) (*types.ContainerCreateConfig, error) {
 	// Create a new container
 	// XXX command + args is a legacy from the Docker plugin (shrugs)
 	cmd := make([]string, 0, len(config.Args)+1)
@@ -300,6 +301,7 @@ func (d *Driver) createContainerCreateConfig(task *drivers.TaskConfig, config *T
 		task.AllocID,
 	)
 
+	// set logging
 	loggingDriver := config.Logging.Type
 	if loggingDriver == "" {
 		loggingDriver = config.Logging.Driver
@@ -316,6 +318,37 @@ func (d *Driver) createContainerCreateConfig(task *drivers.TaskConfig, config *T
 		logConfig.Config = map[string]string{
 			"max-file": "2",
 			"max-size": "2m",
+		}
+	}
+
+	// set capabilities
+	hostCapsWhitelistConfig := d.config.AllowCaps
+	hostCapsWhitelist := make(map[string]*struct{})
+	for _, cap := range hostCapsWhitelistConfig {
+		cap = strings.ToLower(strings.TrimSpace(cap))
+		hostCapsWhitelist[cap] = nil
+	}
+
+	if _, ok := hostCapsWhitelist["all"]; !ok {
+		effectiveCaps, err := tweakCapabilities(
+			strings.Split(dockerBasicCaps, ","),
+			config.CapAdd,
+			config.CapDrop,
+		)
+		if err != nil {
+			return nil, err
+		}
+
+		var missingCaps []string
+		for _, cap := range effectiveCaps {
+			cap = strings.ToLower(cap)
+			if _, ok := hostCapsWhitelist[cap]; !ok {
+				missingCaps = append(missingCaps, cap)
+			}
+		}
+
+		if len(missingCaps) > 0 {
+			return nil, fmt.Errorf("docker driver doesn't have the following caps whitelisted on this Nomad agent: %s", missingCaps)
 		}
 	}
 
@@ -338,10 +371,12 @@ func (d *Driver) createContainerCreateConfig(task *drivers.TaskConfig, config *T
 		},
 		HostConfig: &container.HostConfig{
 			Binds:       binds,
-			SecurityOpt: securityOpt,
-			StorageOpt:  config.StorageOpt,
+			CapAdd:      config.CapAdd,
+			CapDrop:     config.CapDrop,
 			LogConfig:   logConfig,
 			Runtime:     runtime,
+			SecurityOpt: securityOpt,
+			StorageOpt:  config.StorageOpt,
 		},
 		NetworkingConfig: &network.NetworkingConfig{},
 		AdjustCPUShares:  false,
@@ -382,7 +417,7 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 
 	// Create container
 
-	containerCreateConfig, err := d.createContainerCreateConfig(task, config, imageID)
+	containerCreateConfig, err := d.containerCreateConfig(task, config, imageID)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -859,4 +894,23 @@ func parseSecurityOpts(securityOpts []string) ([]string, error) {
 	}
 
 	return securityOpts, nil
+}
+
+func tweakCapabilities(basics, adds, drops []string) ([]string, error) {
+	// Moby mixes 2 different capabilities formats: prefixed with "CAP_"
+	// and not. We do the conversion here to have a consistent,
+	// non-prefixed format on the Nomad side.
+	for i, cap := range basics {
+		basics[i] = "CAP_" + cap
+	}
+
+	effectiveCaps, err := caps.TweakCapabilities(basics, adds, drops, nil, false)
+	if err != nil {
+		return effectiveCaps, err
+	}
+
+	for i, cap := range effectiveCaps {
+		effectiveCaps[i] = cap[len("CAP_"):]
+	}
+	return effectiveCaps, nil
 }

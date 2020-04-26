@@ -7,13 +7,22 @@ import (
 type DriverConfig struct {
 	Endpoint                    string        `codec:"endpoint"`
 	GC                          GCConfig      `codec:"gc"`
+	AllowCaps                   []string      `codec:"allow_caps"`
 	GPURuntimeName              string        `codec:"nvidia_runtime"`
-	PullActivityTimeout         string        `codec:""pull_activity_timeout`
+	PullActivityTimeout         string        `codec:"pull_activity_timeout"`
 	pullActivityTimeoutDuration time.Duration `codec:"-"`
 }
 
-const danglingContainersCreationGraceMinimum = 1 * time.Minute
-const pullActivityTimeoutMinimum = 1 * time.Minute
+const (
+	danglingContainersCreationGraceMinimum = 1 * time.Minute
+	pullActivityTimeoutMinimum             = 1 * time.Minute
+
+	// dockerBasicCaps is comma-separated list of Linux capabilities that are
+	// allowed by docker by default, as documented in
+	// https://docs.docker.com/engine/reference/run/#block-io-bandwidth-blkio-constraint
+	dockerBasicCaps = "CHOWN,DAC_OVERRIDE,FSETID,FOWNER,MKNOD,NET_RAW,SETGID," +
+		"SETUID,SETFCAP,SETPCAP,NET_BIND_SERVICE,SYS_CHROOT,KILL,AUDIT_WRITE"
+)
 
 type GCConfig struct {
 	Image              bool              `codec:"image"`

@@ -34,6 +34,8 @@ type TaskConfig struct {
 	SecurityOpt []string           `codec:"security_opt"`
 	StorageOpt  map[string]string  `codec:"storage_opt"`
 	Logging     DockerLogging      `codec:"logging"`
+	CapAdd      []string           `codec:"cap_add"`
+	CapDrop     []string           `codec:"cap_drop"`
 }
 
 type DockerLogging struct {
