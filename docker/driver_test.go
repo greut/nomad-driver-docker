@@ -797,7 +797,6 @@ func TestDockerDriver_ForcePull_RepoDigest(t *testing.T) {
 }
 
 func TestDockerDriver_SecurityOptUnconfined(t *testing.T) {
-
 	if !tu.IsCI() {
 		t.Parallel()
 	}
@@ -1138,8 +1137,6 @@ func TestDockerDriver_Capabilities(t *testing.T) {
 			require.True(t, ok)
 			if tc.Whitelist != "" {
 				dockerDriver.config.AllowCaps = strings.Split(tc.Whitelist, ",")
-			} else {
-				dockerDriver.config.AllowCaps = strings.Split(dockerBasicCaps, ",")
 			}
 
 			cleanup := d.MkAllocDir(task, true)
