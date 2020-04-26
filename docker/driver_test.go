@@ -1217,3 +1217,24 @@ func TestDockerDriver_MACAddress(t *testing.T) {
 
 	require.Equal(t, cfg.MacAddress, container.NetworkSettings.MacAddress)
 }
+
+func TestDockerDriver_WorkDir(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+
+	tu.DockerCompatible(t)
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	cfg.WorkDir = "/some/path"
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	client, d, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+	require.NoError(t, d.WaitUntilStarted(task.ID, 5*time.Second))
+
+	container, err := client.ContainerInspect(context.TODO(), handle.containerID)
+	require.NoError(t, err)
+	require.Equal(t, cfg.WorkDir, filepath.ToSlash(container.Config.WorkingDir))
+}

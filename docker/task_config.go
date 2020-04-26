@@ -24,6 +24,7 @@ var (
 		"mac_address":  hclspec.NewAttr("mac_address", "string", false),
 		"security_opt": hclspec.NewAttr("security_opt", "list(string)", false),
 		"storage_opt":  hclspec.NewBlockAttrs("storage_opt", "string", false),
+		"work_dir":     hclspec.NewAttr("work_dir", "string", false),
 	})
 )
 
@@ -44,6 +45,7 @@ type TaskConfig struct {
 	PortMap          hclutils.MapStrInt `codec:"port_map"`
 	SecurityOpt      []string           `codec:"security_opt"`
 	StorageOpt       map[string]string  `codec:"storage_opt"`
+	WorkDir          string             `codec:"work_dir"`
 }
 
 type DockerLogging struct {

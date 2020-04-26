@@ -389,6 +389,7 @@ func (d *Driver) containerCreateConfig(task *drivers.TaskConfig, config *TaskCon
 			Labels:     labels,
 			MacAddress: config.MacAddress,
 			User:       task.User,
+			WorkingDir: config.WorkDir,
 		},
 		HostConfig: &container.HostConfig{
 			Binds:       binds,
