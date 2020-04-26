@@ -24,7 +24,6 @@ import (
 	"github.com/hashicorp/go-hclog"
 	cstructs "github.com/hashicorp/nomad/client/structs"
 	"github.com/hashicorp/nomad/client/taskenv"
-	"github.com/hashicorp/nomad/devices/gpu/nvidia"
 	"github.com/hashicorp/nomad/drivers/shared/eventer"
 	"github.com/hashicorp/nomad/helper"
 	"github.com/hashicorp/nomad/helper/pluginutils/loader"
@@ -39,6 +38,9 @@ const (
 	fingerprintPeriod  = 30 * time.Second
 	taskHandleVersion  = 1
 	dockerLabelAllocID = "com.hashicorp.nomad.alloc_id"
+
+	// Nvidia-container-runtime environment variable names
+	nvidiaVisibleDevices = "NVIDIA_VISIBLE_DEVICES"
 )
 
 var (
@@ -363,7 +365,7 @@ func (d *Driver) containerCreateConfig(task *drivers.TaskConfig, config *TaskCon
 
 	// set runtime
 	runtime := ""
-	if _, ok := task.DeviceEnv[nvidia.NvidiaVisibleDevices]; ok {
+	if _, ok := task.DeviceEnv[nvidiaVisibleDevices]; ok {
 		if !d.gpuRuntime {
 			return nil, fmt.Errorf("requested docker-runtime %q was not found", d.config.GPURuntimeName)
 		}

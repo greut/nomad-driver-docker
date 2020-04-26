@@ -19,7 +19,6 @@ import (
 	tu "github.com/greut/nomad-driver-docker/testutil"
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/client/taskenv"
-	"github.com/hashicorp/nomad/devices/gpu/nvidia"
 	"github.com/hashicorp/nomad/helper/freeport"
 	"github.com/hashicorp/nomad/nomad/structs"
 	"github.com/hashicorp/nomad/plugins/drivers"
@@ -1042,7 +1041,7 @@ func TestDockerDriver_CreateContainerConfig_Runtimes(t *testing.T) {
 			driver.gpuRuntime = testCase.gpuRuntimeSet
 			driver.config.GPURuntimeName = testCase.expectedRuntime
 			if testCase.nvidiaDevicesProvided {
-				task.DeviceEnv[nvidia.NvidiaVisibleDevices] = "GPU_UUID_1"
+				task.DeviceEnv[nvidiaVisibleDevices] = "GPU_UUID_1"
 			}
 
 			c, err := driver.containerCreateConfig(task, cfg, "org/repo:0.1")
