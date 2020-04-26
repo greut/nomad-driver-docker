@@ -6,4 +6,5 @@ plugins/nomad-driver-docker: $(GOFILES)
 .PHONY: test
 test: plugins/nomad-driver-docker
 	gotestsum -f dots -- \
-		-cover -timeout=15m -v ./docker/...
+		-cover -coverprofile cover.txt \
+		-timeout=15m -v ./docker/...

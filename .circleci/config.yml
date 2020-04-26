@@ -6,6 +6,9 @@ workflows:
       - test-simple
       - test-docker
 
+orbs:
+  codecov: codecov/codecov@1.0.2
+
 jobs:
   test-simple:
     docker:
@@ -38,4 +41,10 @@ jobs:
           command: |
             go install gotest.tools/gotestsum
       - run: |
+          mkdir -p /tmp/artifacts
           make test
+          go tool cover -html=cover.txt -o /tmp/artifacts/coverage.html
+      - store_artifacts:
+          path: /tmp/artifacts
+      - codecov/upload:
+          file: /tmp/artifacts/coverage.html
