@@ -383,11 +383,12 @@ func (d *Driver) containerCreateConfig(task *drivers.TaskConfig, config *TaskCon
 	return &types.ContainerCreateConfig{
 		Name: containerName,
 		Config: &container.Config{
-			Cmd:    cmd,
-			Env:    env,
-			Image:  imageID,
-			Labels: labels,
-			User:   task.User,
+			Cmd:        cmd,
+			Env:        env,
+			Image:      imageID,
+			Labels:     labels,
+			MacAddress: config.MacAddress,
+			User:       task.User,
 		},
 		HostConfig: &container.HostConfig{
 			Binds:       binds,

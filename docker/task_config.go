@@ -21,6 +21,7 @@ var (
 			"driver": hclspec.NewAttr("driver", "string", false),
 			"config": hclspec.NewAttr("config", "list(map(string))", false),
 		})),
+		"mac_address":  hclspec.NewAttr("mac_address", "string", false),
 		"security_opt": hclspec.NewAttr("security_opt", "list(string)", false),
 		"storage_opt":  hclspec.NewBlockAttrs("storage_opt", "string", false),
 	})
@@ -39,6 +40,7 @@ type TaskConfig struct {
 	Labels           hclutils.MapStrStr `codec:"labels"`
 	LoadImage        string             `codec:"load"`
 	Logging          DockerLogging      `codec:"logging"`
+	MacAddress       string             `codec:"mac_address"`
 	PortMap          hclutils.MapStrInt `codec:"port_map"`
 	SecurityOpt      []string           `codec:"security_opt"`
 	StorageOpt       map[string]string  `codec:"storage_opt"`
