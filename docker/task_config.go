@@ -7,12 +7,15 @@ import (
 
 var (
 	taskConfigSpec = hclspec.NewObject(map[string]*hclspec.Spec{
-		"image":      hclspec.NewAttr("image", "string", true),
-		"command":    hclspec.NewAttr("command", "string", true),
-		"args":       hclspec.NewAttr("args", "list(string)", true),
-		"force_pull": hclspec.NewAttr("force_pull", "bool", false),
-		"labels":     hclspec.NewAttr("labels", "list(map(string))", false),
-		"load":       hclspec.NewAttr("load", "string", false),
+		"image":              hclspec.NewAttr("image", "string", true),
+		"command":            hclspec.NewAttr("command", "string", true),
+		"args":               hclspec.NewAttr("args", "list(string)", true),
+		"dns_search_domains": hclspec.NewAttr("dns_search_domains", "list(string)", false),
+		"dns_options":        hclspec.NewAttr("dns_options", "list(string)", false),
+		"dns_servers":        hclspec.NewAttr("dns_servers", "list(string)", false),
+		"force_pull":         hclspec.NewAttr("force_pull", "bool", false),
+		"labels":             hclspec.NewAttr("labels", "list(map(string))", false),
+		"load":               hclspec.NewAttr("load", "string", false),
 		"logging": hclspec.NewBlock("logging", false, hclspec.NewObject(map[string]*hclspec.Spec{
 			"type":   hclspec.NewAttr("type", "string", false),
 			"driver": hclspec.NewAttr("driver", "string", false),
@@ -24,18 +27,21 @@ var (
 )
 
 type TaskConfig struct {
-	Image       string             `codec:"image"`
-	Command     string             `codec:"command"`
-	Args        []string           `codec:"args"`
-	Labels      hclutils.MapStrStr `codec:"labels"`
-	PortMap     hclutils.MapStrInt `codec:"port_map"`
-	LoadImage   string             `codec:"load"`
-	ForcePull   bool               `codec:"force_pull"`
-	SecurityOpt []string           `codec:"security_opt"`
-	StorageOpt  map[string]string  `codec:"storage_opt"`
-	Logging     DockerLogging      `codec:"logging"`
-	CapAdd      []string           `codec:"cap_add"`
-	CapDrop     []string           `codec:"cap_drop"`
+	Args             []string           `codec:"args"`
+	CapAdd           []string           `codec:"cap_add"`
+	CapDrop          []string           `codec:"cap_drop"`
+	Command          string             `codec:"command"`
+	DNSOptions       []string           `codec:"dns_options"`
+	DNSSearchDomains []string           `codec:"dns_search_domains"`
+	DNSServers       []string           `codec:"dns_servers"`
+	ForcePull        bool               `codec:"force_pull"`
+	Image            string             `codec:"image"`
+	Labels           hclutils.MapStrStr `codec:"labels"`
+	LoadImage        string             `codec:"load"`
+	Logging          DockerLogging      `codec:"logging"`
+	PortMap          hclutils.MapStrInt `codec:"port_map"`
+	SecurityOpt      []string           `codec:"security_opt"`
+	StorageOpt       map[string]string  `codec:"storage_opt"`
 }
 
 type DockerLogging struct {

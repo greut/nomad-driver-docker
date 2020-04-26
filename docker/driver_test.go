@@ -1169,3 +1169,29 @@ func TestDockerDriver_Capabilities(t *testing.T) {
 		})
 	}
 }
+
+func TestDockerDriver_DNS(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	tu.DockerCompatible(t)
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	cfg.DNSServers = []string{"8.8.8.8", "8.8.4.4"}
+	cfg.DNSSearchDomains = []string{"example.com", "example.org", "example.net"}
+	cfg.DNSOptions = []string{"ndots:1"}
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	client, d, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+
+	require.NoError(t, d.WaitUntilStarted(task.ID, 5*time.Second))
+
+	container, err := client.ContainerInspect(context.TODO(), handle.containerID)
+	require.NoError(t, err)
+
+	require.Exactly(t, cfg.DNSServers, container.HostConfig.DNS)
+	require.Exactly(t, cfg.DNSSearchDomains, container.HostConfig.DNSSearch)
+	require.Exactly(t, cfg.DNSOptions, container.HostConfig.DNSOptions)
+}

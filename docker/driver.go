@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"io/ioutil"
+	"net"
 	"os"
 	"path/filepath"
 	"strings"
@@ -360,12 +361,23 @@ func (d *Driver) containerCreateConfig(task *drivers.TaskConfig, config *TaskCon
 		}
 	}
 
+	// set runtime
 	runtime := ""
 	if _, ok := task.DeviceEnv[nvidia.NvidiaVisibleDevices]; ok {
 		if !d.gpuRuntime {
 			return nil, fmt.Errorf("requested docker-runtime %q was not found", d.config.GPURuntimeName)
 		}
 		runtime = d.config.GPURuntimeName
+	}
+
+	// set DNS servers
+	dns := make([]string, 0)
+	for _, ip := range config.DNSServers {
+		if net.ParseIP(ip) != nil {
+			dns = append(dns, ip)
+		} else {
+			d.logger.Error("invalid ip address for container dns server", "ip", ip)
+		}
 	}
 
 	return &types.ContainerCreateConfig{
@@ -381,6 +393,9 @@ func (d *Driver) containerCreateConfig(task *drivers.TaskConfig, config *TaskCon
 			Binds:       binds,
 			CapAdd:      config.CapAdd,
 			CapDrop:     config.CapDrop,
+			DNS:         dns,
+			DNSOptions:  config.DNSOptions,
+			DNSSearch:   config.DNSSearchDomains,
 			LogConfig:   logConfig,
 			Runtime:     runtime,
 			SecurityOpt: securityOpt,
