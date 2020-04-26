@@ -14,6 +14,7 @@ import (
 
 	"github.com/docker/docker/api/types/container"
 	"github.com/docker/docker/api/types/network"
+	"github.com/docker/docker/api/types/strslice"
 	docker "github.com/docker/docker/client"
 	tu "github.com/greut/nomad-driver-docker/testutil"
 	"github.com/hashicorp/nomad/client/allocdir"
@@ -1069,8 +1070,8 @@ func TestDockerDriver_Capabilities(t *testing.T) {
 
 	testCases := []struct {
 		Name       string
-		CapAdd     []string
-		CapDrop    []string
+		CapAdd     strslice.StrSlice
+		CapDrop    strslice.StrSlice
 		Whitelist  string
 		StartError string
 	}{
@@ -1137,6 +1138,8 @@ func TestDockerDriver_Capabilities(t *testing.T) {
 			require.True(t, ok)
 			if tc.Whitelist != "" {
 				dockerDriver.config.AllowCaps = strings.Split(tc.Whitelist, ",")
+			} else {
+				dockerDriver.config.AllowCaps = strings.Split(dockerBasicCaps, ",")
 			}
 
 			cleanup := d.MkAllocDir(task, true)

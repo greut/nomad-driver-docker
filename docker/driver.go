@@ -906,7 +906,7 @@ func tweakCapabilities(basics, adds, drops []string) ([]string, error) {
 
 	effectiveCaps, err := caps.TweakCapabilities(basics, adds, drops, nil, false)
 	if err != nil {
-		return effectiveCaps, err
+		return nil, err
 	}
 
 	for i, cap := range effectiveCaps {
