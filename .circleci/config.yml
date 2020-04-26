@@ -43,8 +43,9 @@ jobs:
       - run: |
           mkdir -p /tmp/artifacts
           make test
-          go tool cover -html=cover.txt -o /tmp/artifacts/coverage.html
+          go tool cover -html=coverage.txt -o /tmp/artifacts/coverage.html
+          cp cover.txt /tmp/artifacts/coverage.txt
       - store_artifacts:
           path: /tmp/artifacts
       - codecov/upload:
-          file: /tmp/artifacts/coverage.html
+          file: /tmp/artifacts/coverage.txt
