@@ -295,6 +295,9 @@ func (d *Driver) containerCreateConfig(task *drivers.TaskConfig, config *TaskCon
 	}
 	d.logger.Debug("container creation", "image", config.Image, "imageID", imageID, "command", cmd)
 
+	// ensure that PortMap variables are populated early on
+	task.Env = taskenv.SetPortMapEnvs(task.Env, config.PortMap)
+
 	// XXX figure out how to get ENV from the image.
 	task.Env["PATH"] = "/bin:/sbin:/usr/bin:/usr/local/bin"
 	env := task.EnvList()
