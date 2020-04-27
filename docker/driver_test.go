@@ -1279,3 +1279,52 @@ func TestDockerDriver_PortsNoMap(t *testing.T) {
 
 	require.Exactly(t, nat.PortMap(expectedPortBindings), container.HostConfig.PortBindings)
 }
+
+func TestDockerDriver_PortsMapping(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	tu.DockerCompatible(t)
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	res := ports[0]
+	dyn := ports[1]
+	cfg.PortMap = map[string]int{
+		"main":  8080,
+		"REDIS": 6379,
+	}
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	client, d, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+	require.NoError(t, d.WaitUntilStarted(task.ID, 5*time.Second))
+
+	container, err := client.ContainerInspect(context.TODO(), handle.containerID)
+	require.NoError(t, err)
+
+	// Verify that the port environment variables are set
+	require.Contains(t, container.Config.Env, "NOMAD_PORT_main=8080")
+	require.Contains(t, container.Config.Env, "NOMAD_PORT_REDIS=6379")
+
+	// Verify that the correct ports are EXPOSED
+	expectedExposedPorts := map[nat.Port]struct{}{
+		nat.Port("8080/tcp"): {},
+		nat.Port("8080/udp"): {},
+		nat.Port("6379/tcp"): {},
+		nat.Port("6379/udp"): {},
+	}
+
+	require.Exactly(t, expectedExposedPorts, container.Config.ExposedPorts)
+
+	hostIP := "127.0.0.1"
+
+	// Verify that the correct ports are FORWARDED
+	expectedPortBindings := map[nat.Port][]nat.PortBinding{
+		nat.Port("8080/tcp"): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", res)}},
+		nat.Port("8080/udp"): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", res)}},
+		nat.Port("6379/tcp"): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", dyn)}},
+		nat.Port("6379/udp"): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", dyn)}},
+	}
+	require.Exactly(t, expectedPortBindings, container.HostConfig.PortBindings)
+}
