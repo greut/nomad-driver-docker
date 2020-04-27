@@ -22,6 +22,7 @@ var (
 			"config": hclspec.NewAttr("config", "list(map(string))", false),
 		})),
 		"mac_address":  hclspec.NewAttr("mac_address", "string", false),
+		"port_map":     hclspec.NewAttr("port_map", "list(map(number))", false),
 		"security_opt": hclspec.NewAttr("security_opt", "list(string)", false),
 		"storage_opt":  hclspec.NewBlockAttrs("storage_opt", "string", false),
 		"work_dir":     hclspec.NewAttr("work_dir", "string", false),

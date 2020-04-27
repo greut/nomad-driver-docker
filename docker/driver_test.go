@@ -16,6 +16,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/strslice"
 	docker "github.com/docker/docker/client"
+	"github.com/docker/go-connections/nat"
 	tu "github.com/greut/nomad-driver-docker/testutil"
 	"github.com/hashicorp/nomad/client/allocdir"
 	"github.com/hashicorp/nomad/client/taskenv"
@@ -1236,4 +1237,45 @@ func TestDockerDriver_WorkDir(t *testing.T) {
 	container, err := client.ContainerInspect(context.TODO(), handle.containerID)
 	require.NoError(t, err)
 	require.Equal(t, cfg.WorkDir, filepath.ToSlash(container.Config.WorkingDir))
+}
+
+func TestDockerDriver_PortsNoMap(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	tu.DockerCompatible(t)
+
+	task, _, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	res := ports[0]
+	dyn := ports[1]
+
+	client, d, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+	require.NoError(t, d.WaitUntilStarted(task.ID, 5*time.Second))
+
+	container, err := client.ContainerInspect(context.TODO(), handle.containerID)
+	require.NoError(t, err)
+
+	// Verify that the correct ports are EXPOSED
+	expectedExposedPorts := nat.PortSet(map[nat.Port]struct{}{
+		nat.Port(fmt.Sprintf("%d/tcp", res)): {},
+		nat.Port(fmt.Sprintf("%d/udp", res)): {},
+		nat.Port(fmt.Sprintf("%d/tcp", dyn)): {},
+		nat.Port(fmt.Sprintf("%d/udp", dyn)): {},
+	})
+
+	require.Exactly(t, expectedExposedPorts, container.Config.ExposedPorts)
+
+	hostIP := "127.0.0.1"
+
+	// Verify that the correct ports are FORWARDED
+	expectedPortBindings := map[nat.Port][]nat.PortBinding{
+		nat.Port(fmt.Sprintf("%d/tcp", res)): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", res)}},
+		nat.Port(fmt.Sprintf("%d/udp", res)): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", res)}},
+		nat.Port(fmt.Sprintf("%d/tcp", dyn)): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", dyn)}},
+		nat.Port(fmt.Sprintf("%d/udp", dyn)): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", dyn)}},
+	}
+
+	require.Exactly(t, nat.PortMap(expectedPortBindings), container.HostConfig.PortBindings)
 }

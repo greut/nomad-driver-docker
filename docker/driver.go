@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -20,6 +21,7 @@ import (
 	"github.com/docker/docker/api/types/network"
 	docker "github.com/docker/docker/client"
 	"github.com/docker/docker/oci/caps"
+	"github.com/docker/go-connections/nat"
 	"github.com/hashicorp/consul-template/signals"
 	"github.com/hashicorp/go-hclog"
 	cstructs "github.com/hashicorp/nomad/client/structs"
@@ -275,6 +277,13 @@ func (d *Driver) RecoverTask(*drivers.TaskHandle) error {
 }
 
 func (d *Driver) containerCreateConfig(task *drivers.TaskConfig, config *TaskConfig, imageID string) (*types.ContainerCreateConfig, error) {
+	if task.Resources == nil {
+		// Guard against missing resources. We should never have been able to
+		// schedule a job without specifying this.
+		d.logger.Error("task.Resources is empty")
+		return nil, fmt.Errorf("task.Resources is empty")
+	}
+
 	// Create a new container
 	// XXX command + args is a legacy from the Docker plugin (shrugs)
 	cmd := make([]string, 0, len(config.Args)+1)
@@ -311,6 +320,73 @@ func (d *Driver) containerCreateConfig(task *drivers.TaskConfig, config *TaskCon
 		"%s-%s", strings.Replace(task.Name, "/", "_", -1),
 		task.AllocID,
 	)
+
+	// Setup port mapping and exposed ports
+	var exposedPorts nat.PortSet
+	var publishedPorts nat.PortMap
+	if task.Resources.NomadResources != nil {
+		if len(task.Resources.NomadResources.Networks) == 0 {
+			if len(config.PortMap) > 0 {
+				return nil, fmt.Errorf("trying to map ports but no network interface is available")
+			}
+		} else {
+			// TODO add support for more than one network
+			network := task.Resources.NomadResources.Networks[0]
+
+			exposedPorts = make(map[nat.Port]struct{})
+			publishedPorts = make(map[nat.Port][]nat.PortBinding)
+
+			for _, port := range network.ReservedPorts {
+				// By default we will map the allocated port 1:1 to the container
+				containerPortInt := port.Value
+
+				// If the user has mapped a port using port_map we'll change it here
+				if mapped, ok := config.PortMap[port.Label]; ok {
+					containerPortInt = mapped
+				}
+
+				hostPortStr := strconv.Itoa(port.Value)
+				containerPort := nat.Port(strconv.Itoa(containerPortInt))
+
+				publishedPorts[containerPort+"/tcp"] = []nat.PortBinding{
+					{HostIP: network.IP, HostPort: hostPortStr},
+				}
+				publishedPorts[containerPort+"/udp"] = []nat.PortBinding{
+					{HostIP: network.IP, HostPort: hostPortStr},
+				}
+				d.logger.Debug("allocated static port", "ip", network.IP, "port", port.Value)
+
+				exposedPorts[containerPort+"/tcp"] = struct{}{}
+				exposedPorts[containerPort+"/udp"] = struct{}{}
+				d.logger.Debug("exposed port", "port", port.Value)
+			}
+
+			for _, port := range network.DynamicPorts {
+				// By default we will map the allocated port 1:1 to the container
+				containerPortInt := port.Value
+
+				// If the user has mapped a port using port_map we'll change it here
+				if mapped, ok := config.PortMap[port.Label]; ok {
+					containerPortInt = mapped
+				}
+
+				hostPortStr := strconv.Itoa(port.Value)
+				containerPort := nat.Port(strconv.Itoa(containerPortInt))
+
+				publishedPorts[containerPort+"/tcp"] = []nat.PortBinding{
+					{HostIP: network.IP, HostPort: hostPortStr},
+				}
+				publishedPorts[containerPort+"/udp"] = []nat.PortBinding{
+					{HostIP: network.IP, HostPort: hostPortStr},
+				}
+				d.logger.Debug("allocated mapped port", "ip", network.IP, "port", port.Value)
+
+				exposedPorts[containerPort+"/tcp"] = struct{}{}
+				exposedPorts[containerPort+"/udp"] = struct{}{}
+				d.logger.Debug("exposed port", "port", containerPort)
+			}
+		}
+	}
 
 	// set logging
 	loggingDriver := config.Logging.Type
@@ -385,25 +461,27 @@ func (d *Driver) containerCreateConfig(task *drivers.TaskConfig, config *TaskCon
 	return &types.ContainerCreateConfig{
 		Name: containerName,
 		Config: &container.Config{
-			Cmd:        cmd,
-			Env:        env,
-			Image:      imageID,
-			Labels:     labels,
-			MacAddress: config.MacAddress,
-			User:       task.User,
-			WorkingDir: config.WorkDir,
+			Cmd:          cmd,
+			Env:          env,
+			ExposedPorts: exposedPorts,
+			Image:        imageID,
+			Labels:       labels,
+			MacAddress:   config.MacAddress,
+			User:         task.User,
+			WorkingDir:   config.WorkDir,
 		},
 		HostConfig: &container.HostConfig{
-			Binds:       binds,
-			CapAdd:      config.CapAdd,
-			CapDrop:     config.CapDrop,
-			DNS:         dns,
-			DNSOptions:  config.DNSOptions,
-			DNSSearch:   config.DNSSearchDomains,
-			LogConfig:   logConfig,
-			Runtime:     runtime,
-			SecurityOpt: securityOpt,
-			StorageOpt:  config.StorageOpt,
+			Binds:        binds,
+			CapAdd:       config.CapAdd,
+			CapDrop:      config.CapDrop,
+			DNS:          dns,
+			DNSOptions:   config.DNSOptions,
+			DNSSearch:    config.DNSSearchDomains,
+			LogConfig:    logConfig,
+			PortBindings: publishedPorts,
+			Runtime:      runtime,
+			SecurityOpt:  securityOpt,
+			StorageOpt:   config.StorageOpt,
 		},
 		NetworkingConfig: &network.NetworkingConfig{},
 		AdjustCPUShares:  false,
