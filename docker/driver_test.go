@@ -12,7 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/docker/docker/api/types"
 	"github.com/docker/docker/api/types/container"
+	"github.com/docker/docker/api/types/filters"
 	"github.com/docker/docker/api/types/network"
 	"github.com/docker/docker/api/types/strslice"
 	docker "github.com/docker/docker/client"
@@ -82,6 +84,37 @@ func dockerTask(t *testing.T) (*drivers.TaskConfig, *TaskConfig, []int) {
 	require.NoError(t, task.EncodeConcreteDriverConfig(&cfg))
 
 	return task, cfg, ports
+}
+
+// cleanSlate removes the specified docker image, including potentially stopping/removing any
+// containers based on that image. This is used to decouple tests that would be coupled
+// by using the same container image.
+func cleanSlate(client *docker.Client, imageID string) {
+	ctx, cancel := context.WithCancel(context.TODO())
+	defer cancel()
+
+	if img, _, _ := client.ImageInspectWithRaw(ctx, imageID); img.ID == "" {
+		return
+	}
+
+	containers, _ := client.ContainerList(ctx, types.ContainerListOptions{
+		All: true,
+		Filters: filters.NewArgs(
+			filters.Arg("ancestor", imageID),
+		),
+	})
+
+	for _, c := range containers {
+		client.ContainerRemove(ctx, c.ID, types.ContainerRemoveOptions{
+			Force: true,
+		})
+	}
+
+	client.ImageRemove(ctx, imageID, types.ImageRemoveOptions{
+		Force: true,
+	})
+
+	return
 }
 
 // dockerDriverHarness wires up everything needed to launch a task with a docker driver.
@@ -1402,4 +1435,70 @@ func TestDockerDriver_CleanupContainer(t *testing.T) {
 	case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
 		t.Fatalf("timeout")
 	}
+}
+
+func TestDockerDriver_EnableImageGC(t *testing.T) {
+	tu.DockerCompatible(t)
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	cfg.Command = "echo"
+	cfg.Args = []string{"hello"}
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	client := newTestDockerClient(t)
+	driver := dockerDriverHarness(t, map[string]interface{}{
+		"gc": map[string]interface{}{
+			"container":   true,
+			"image":       true,
+			"image_delay": "2s",
+		},
+	})
+	cleanup := driver.MkAllocDir(task, true)
+	defer cleanup()
+
+	cleanSlate(client, cfg.Image)
+
+	copyImage(t, task.TaskDir(), "busybox.tar")
+	_, _, err := driver.StartTask(task)
+	require.NoError(t, err)
+
+	dockerDriver, ok := driver.Impl().(*Driver)
+	require.True(t, ok)
+	_, ok = dockerDriver.tasks.Get(task.ID)
+	require.True(t, ok)
+
+	waitCh, err := dockerDriver.WaitTask(context.Background(), task.ID)
+	require.NoError(t, err)
+	select {
+	case res := <-waitCh:
+		if !res.Successful() {
+			t.Fatalf("err: %v", res)
+		}
+
+	case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
+		t.Fatalf("timeout")
+	}
+
+	// we haven't called DestroyTask, image should be present
+	_, _, err = client.ImageInspectWithRaw(context.TODO(), cfg.Image)
+	require.NoError(t, err)
+
+	err = dockerDriver.DestroyTask(task.ID, false)
+	require.NoError(t, err)
+
+	// image_delay is 3s, so image should still be around for a bit
+	_, _, err = client.ImageInspectWithRaw(context.TODO(), cfg.Image)
+	require.NoError(t, err)
+
+	// Ensure image was removed
+	tu.WaitForResult(func() (bool, error) {
+		if _, _, err := client.ImageInspectWithRaw(context.TODO(), cfg.Image); err == nil {
+			return false, fmt.Errorf("image exists but should have been removed. Does another %v container exist?", cfg.Image)
+		}
+
+		return true, nil
+	}, func(err error) {
+		require.NoError(t, err)
+	})
 }
