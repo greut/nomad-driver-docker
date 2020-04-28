@@ -20,7 +20,10 @@ func DockerIsConnected(t *testing.T) bool {
 		return runtime.GOOS == "windows"
 	}
 
-	client, err := docker.NewClientWithOpts(docker.FromEnv)
+	client, err := docker.NewClientWithOpts(
+		docker.FromEnv,
+		docker.WithAPIVersionNegotiation(),
+	)
 	if err != nil {
 		t.Logf("failed to create the docker client: %s", err)
 		return false
