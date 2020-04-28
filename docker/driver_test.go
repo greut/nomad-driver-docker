@@ -1363,3 +1363,43 @@ func TestDockerDriver_CreateContainerConfig_PortsMapping(t *testing.T) {
 
 	require.Exactly(t, expectedPortBindings, c.HostConfig.PortBindings)
 }
+
+func TestDockerDriver_CleanupContainer(t *testing.T) {
+	if !tu.IsCI() {
+		t.Parallel()
+	}
+	tu.DockerCompatible(t)
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	cfg.Command = "echo"
+	cfg.Args = []string{"hello"}
+	require.NoError(t, task.EncodeConcreteDriverConfig(cfg))
+
+	client, d, handle, cleanup := dockerSetup(t, task)
+	defer cleanup()
+
+	waitCh, err := d.WaitTask(context.Background(), task.ID)
+	require.NoError(t, err)
+
+	select {
+	case res := <-waitCh:
+		if !res.Successful() {
+			t.Fatalf("err: %v", res)
+		}
+
+		err = d.DestroyTask(task.ID, false)
+		require.NoError(t, err)
+
+		time.Sleep(3 * time.Second)
+
+		// Ensure that the container isn't present
+		_, err := client.ContainerInspect(context.TODO(), handle.containerID)
+		if err == nil {
+			t.Fatalf("expected to not get container")
+		}
+
+	case <-time.After(time.Duration(tu.TestMultiplier()*5) * time.Second):
+		t.Fatalf("timeout")
+	}
+}
