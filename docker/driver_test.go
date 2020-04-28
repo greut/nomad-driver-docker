@@ -1329,3 +1329,37 @@ func TestDockerDriver_PortsMapping(t *testing.T) {
 
 	require.Exactly(t, expectedPortBindings, container.HostConfig.PortBindings)
 }
+
+func TestDockerDriver_CreateContainerConfig_PortsMapping(t *testing.T) {
+	t.Parallel()
+
+	task, cfg, ports := dockerTask(t)
+	defer freeport.Return(ports)
+	res := ports[0]
+	dyn := ports[1]
+	cfg.PortMap = map[string]int{
+		"main":  8080,
+		"REDIS": 6379,
+	}
+	dh := dockerDriverHarness(t, nil)
+	driver := dh.Impl().(*Driver)
+
+	c, err := driver.containerCreateConfig(task, cfg, "org/repo:0.1")
+	require.NoError(t, err)
+
+	require.Equal(t, "org/repo:0.1", c.Config.Image)
+	require.Contains(t, c.Config.Env, "NOMAD_PORT_main=8080")
+	require.Contains(t, c.Config.Env, "NOMAD_PORT_REDIS=6379")
+
+	// Verify that the correct ports are FORWARDED
+	hostIP := "127.0.0.1"
+
+	expectedPortBindings := nat.PortMap(map[nat.Port][]nat.PortBinding{
+		nat.Port("8080/tcp"): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", res)}},
+		nat.Port("8080/udp"): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", res)}},
+		nat.Port("6379/tcp"): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", dyn)}},
+		nat.Port("6379/udp"): {{HostIP: hostIP, HostPort: fmt.Sprintf("%d", dyn)}},
+	})
+
+	require.Exactly(t, expectedPortBindings, c.HostConfig.PortBindings)
+}
