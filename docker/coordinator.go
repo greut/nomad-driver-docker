@@ -203,3 +203,116 @@ func (c *coordinator) incrementImageReferenceImpl(id, image, callerID string) {
 		c.logger.Debug("image reference count incremented", "image", image, "id", id, "refcount", len(references))
 	}
 }
+
+// RemoveImage removes the given image. If there are any errors removing the
+// image, the remove is retried internally.
+func (c *coordinator) RemoveImage(imageID, callerID string) {
+	c.imageLock.Lock()
+	defer c.imageLock.Unlock()
+
+	if !c.cleanup {
+		c.logger.Debug("not cleanup, skipping")
+		return
+	}
+
+	references, ok := c.imageRefCount[imageID]
+	if !ok {
+		c.logger.Warn("RemoveImage on non-referenced counted image id", "image_id", imageID)
+		return
+	}
+
+	// Decrement the reference count
+	delete(references, callerID)
+	count := len(references)
+	c.logger.Debug("image id reference count decremented", "image_id", imageID, "references", count)
+
+	// Nothing to do
+	if count != 0 {
+		c.logger.Debug("count is zero")
+		return
+	}
+
+	// This should never be the case but we safety guard so we don't leak a
+	// cancel.
+	if cancel, ok := c.deleteFuture[imageID]; ok {
+		c.logger.Error("image id has lingering delete future", "image_id", imageID)
+		cancel()
+	}
+
+	// Setup a future to delete the image
+	ctx, cancel := context.WithCancel(context.TODO())
+	c.deleteFuture[imageID] = cancel
+	go c.removeImageImpl(ctx, imageID)
+
+	// Delete the key from the reference count
+	delete(c.imageRefCount, imageID)
+}
+
+// removeImageImpl is used to remove an image. It wil wait the specified remove
+// delay to remove the image. If the context is cancelled before that the image
+// removal will be cancelled.
+func (c *coordinator) removeImageImpl(ctx context.Context, id string) {
+	c.logger.Debug("removing image impl", "image_id", id)
+	// Wait for the delay or a cancellation event
+	select {
+	case <-ctx.Done():
+		// We have been cancelled
+		return
+	case <-time.After(c.removeDelay):
+	}
+
+	c.logger.Debug("removing image lock", "image_id", id)
+	// Ensure we are suppose to delete. Do a short check while holding the lock
+	// so there can't be interleaving. There is still the smallest chance that
+	// the delete occurs after the image has been pulled but before it has been
+	// incremented. For handling that we just treat it as a recoverable error in
+	// the docker driver.
+	c.imageLock.Lock()
+	select {
+	case <-ctx.Done():
+		c.imageLock.Unlock()
+		return
+	default:
+	}
+	c.imageLock.Unlock()
+
+	c.logger.Debug("removing image", "image_id", id)
+
+	for i := 0; i < 3; i++ {
+		_, err := c.client.ImageRemove(ctx, id, types.ImageRemoveOptions{})
+		if err == nil {
+			break
+		}
+
+		if err != nil {
+			c.logger.Debug("unable to cleanup image, does not exist", "image_id", id, "error", err)
+		}
+
+		/*
+			if derr, ok := err.(*docker.Error); ok && derr.Status == 409 {
+				c.logger.Debug("unable to cleanup image, still in use", "image_id", id)
+				return
+			}
+		*/
+
+		// Retry on unknown errors
+		c.logger.Debug("failed to remove image", "image_id", id, "attempt", i+1, "error", err)
+
+		select {
+		case <-ctx.Done():
+			// We have been cancelled
+			return
+		case <-time.After(3 * time.Second):
+		}
+	}
+
+	c.logger.Debug("cleanup removed downloaded image", "image_id", id)
+
+	// Cleanup the future from the map and free the context by cancelling it
+	c.imageLock.Lock()
+	if cancel, ok := c.deleteFuture[id]; ok {
+		delete(c.deleteFuture, id)
+		cancel()
+	}
+	c.imageLock.Unlock()
+}

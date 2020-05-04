@@ -595,6 +595,7 @@ func (d *Driver) StartTask(task *drivers.TaskConfig) (*drivers.TaskHandle, *driv
 		logger:                d.logger.With("container_id", container.ID),
 		task:                  task,
 		containerID:           container.ID,
+		containerImage:        container.Image,
 		doneChan:              make(chan bool),
 		waitChan:              make(chan struct{}),
 		removeContainerOnExit: d.config.GC.Container,
@@ -770,12 +771,10 @@ func (d *Driver) DestroyTask(taskID string, force bool) error {
 		}
 	}
 
-	/* XXX TODO
 	if err := d.cleanupImage(h); err != nil {
 		h.logger.Error("failed to cleanup image after destroying container",
 			"error", err)
 	}
-	*/
 
 	d.tasks.Delete(taskID)
 	return nil
@@ -899,6 +898,19 @@ func (d *Driver) detectIP(c *types.ContainerJSON, config *TaskConfig) (string, b
 	}
 
 	return ip, false
+}
+
+// cleanupImage removes a Docker image. No error is returned if the image
+// doesn't exist or is still in use. Requires the global client to already be
+// initialized.
+func (d *Driver) cleanupImage(handle *taskHandle) error {
+	if !d.config.GC.Image {
+		return nil
+	}
+
+	d.coordinator.RemoveImage(handle.containerImage, handle.task.ID)
+
+	return nil
 }
 
 func (d *Driver) emitEventFunc(task *drivers.TaskConfig) LogEventFn {

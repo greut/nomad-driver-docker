@@ -21,6 +21,7 @@ import (
 type taskHandle struct {
 	ctx                   context.Context
 	containerID           string
+	containerImage        string
 	client                *docker.Client
 	waitClient            *docker.Client
 	logger                hclog.Logger

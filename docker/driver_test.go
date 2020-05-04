@@ -1487,7 +1487,7 @@ func TestDockerDriver_EnableImageGC(t *testing.T) {
 	err = dockerDriver.DestroyTask(task.ID, false)
 	require.NoError(t, err)
 
-	// image_delay is 3s, so image should still be around for a bit
+	// image_delay is 2s, so image should still be around for a bit
 	_, _, err = client.ImageInspectWithRaw(context.TODO(), cfg.Image)
 	require.NoError(t, err)
 

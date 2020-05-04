@@ -1,6 +1,8 @@
 package docker
 
 import (
+	"strconv"
+	"strings"
 	"time"
 )
 
@@ -52,4 +54,70 @@ type ContainerGCConfig struct {
 	// and haven't been registered in tasks.
 	CreationGrace         string        `codec:"creation_grace"`
 	creationGraceDuration time.Duration `codec:"-"`
+}
+
+func PluginLoader(opts map[string]string) (map[string]interface{}, error) {
+	conf := map[string]interface{}{}
+	if v, ok := opts["docker.endpoint"]; ok {
+		conf["endpoint"] = v
+	}
+
+	// dockerd auth
+	authConf := map[string]interface{}{}
+	if v, ok := opts["docker.auth.config"]; ok {
+		authConf["config"] = v
+	}
+	if v, ok := opts["docker.auth.helper"]; ok {
+		authConf["helper"] = v
+	}
+	conf["auth"] = authConf
+
+	// dockerd tls
+	if _, ok := opts["docker.tls.cert"]; ok {
+		conf["tls"] = map[string]interface{}{
+			"cert": opts["docker.tls.cert"],
+			"key":  opts["docker.tls.key"],
+			"ca":   opts["docker.tls.ca"],
+		}
+	}
+
+	// garbage collection
+	gcConf := map[string]interface{}{}
+	if v, err := strconv.ParseBool(opts["docker.cleanup.image"]); err == nil {
+		gcConf["image"] = v
+	}
+	if v, ok := opts["docker.cleanup.image.delay"]; ok {
+		gcConf["image_delay"] = v
+	}
+	if v, err := strconv.ParseBool(opts["docker.cleanup.container"]); err == nil {
+		gcConf["container"] = v
+	}
+	conf["gc"] = gcConf
+
+	// volume options
+	volConf := map[string]interface{}{}
+	if v, err := strconv.ParseBool(opts["docker.volumes.enabled"]); err == nil {
+		volConf["enabled"] = v
+	}
+	if v, ok := opts["docker.volumes.selinuxlabel"]; ok {
+		volConf["selinuxlabel"] = v
+	}
+	conf["volumes"] = volConf
+
+	// capabilities
+	if v, ok := opts["docker.caps.whitelist"]; ok {
+		conf["allow_caps"] = strings.Split(v, ",")
+	}
+
+	// privileged containers
+	if v, err := strconv.ParseBool(opts["docker.privileged.enabled"]); err == nil {
+		conf["allow_privileged"] = v
+	}
+
+	// nvidia_runtime
+	if v, ok := opts["docker.nvidia_runtime"]; ok {
+		conf["nvidia_runtime"] = v
+	}
+
+	return conf, nil
 }
